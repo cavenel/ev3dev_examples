@@ -173,11 +173,8 @@ class Rubiks(Robot):
         time.sleep(0.1)
         while math.fabs(self.mot_rotate.get_speed()) > 4:
             if self.mot_rotate.get_position() >= (i * 135) - 5:
+                self.colors.append((Rubiks.scan_order[self.k],self.get_hsl_colors()))
                 i += 1
-                if i%2:
-                    self.colors.append((Rubiks.scan_order[self.k],self.get_hsl_colors()))
-                else:
-                    self.colors.append((Rubiks.scan_order[self.k],self.get_hsl_colors()))
                 self.k += 1
                 if i % 2 and i < 9:
                     self.put_arm_corner(i)
