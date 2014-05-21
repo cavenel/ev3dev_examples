@@ -1,4 +1,5 @@
 from ev3 import *
+import colorsys
 
 class Rubiks(Robot):
     scan_order = [5, 9, 6, 3, 2, 1, 4, 7, 8, 23, 27, 24, 21, 20, 19, 22, 25, 26, 50, 54, 51, 48, 47, 46, 49, 52, 53, 14, 10, 13, 16, 17, 18, 15, 12, 11, 41, 43, 44, 45, 42, 39, 38, 37, 40, 32, 34, 35, 36, 33, 30, 29, 28, 31]
@@ -99,49 +100,71 @@ class Rubiks(Robot):
         self.mot_push.wait_for_stop()
 
     def put_arm_middle(self):
-        self.mot_bras.goto_position(-330, 100, regulate=0, brake=1, hold=1)
+        self.mot_bras.goto_position(-370, 100, regulate=0, brake=1, hold=1)
 
     def put_arm_corner(self, i):
         diff = 0
-        if i >= 3 and i <= 5:
+        if (i == 2):
             diff = 20
+        if i == 6:
+            diff = -20
         self.mot_bras.goto_position(-200 - diff, 100, regulate=1, brake=1, hold=1)
 
-    def put_arm_border(self, i):
+    def put_arm_edge(self, i):
         diff = 0
-        if i >= 3 and i <= 5:
+        if i >= 2 and i <= 4:
             diff = 20
         self.mot_bras.goto_position(-260 - diff, 100, regulate=1, brake=1, hold=1)
 
     def remove_arm(self):
         self.mot_bras.goto_position(0, 100, regulate=1, brake=1, hold=0)
 
-    def get_color(self):
+    def get_color_distance (self, c1, c2):
+        (_,(h1,s1,l1)) = c1
+        (_,(h2,s2,l2)) = c2
+        return math.sqrt((h1-h2)*(h1-h2) + (s1-s2)*(s1-s2))
+
+    def connect(self, i1,i2):
+        cl1, cl2 = self.clusters[i1], self.clusters[i2]
+        if (self.clusters.count(cl1) + self.clusters.count(cl2) > 9):
+            return None
+        else:
+            for i in [i_ for i_, cl in enumerate(self.clusters) if cl == cl2]:
+                self.clusters[i] = cl1
+        
+    def cluster_colors (self):
+        distances = []
+        self.clusters = [i for i, _ in enumerate(self.colors)]
+
+        for i1 in range(len(self.colors)):
+            for i2 in range(i1+1,len(self.colors)):
+                distances.append((i1, i2, self.get_color_distance(self.colors[i1], self.colors[i2])))
+        distances.sort(key=lambda (_, __, d): d)
+
+
+        for (i1,i2,d) in distances:
+            self.connect(i1,i2)
+
+        for index, c in enumerate(set(self.clusters)):
+            for i in [i_ for i_, cl in enumerate(self.clusters) if cl == c]:
+                self.clusters[i] = index
+        for i,c in enumerate(self.clusters):
+            k,_ = self.colors[i]
+            self.cube[k] = str(c+1)
+
+    def get_hsl_colors(self):
         R, G, B = self.color_sensor.get_rgb()
-        sum_RGB = R + G + B
-        new_col_n = [255 * R / sum_RGB, 255 * G / sum_RGB, 255 * B / sum_RGB]
-        names = ['Orange', 'Vert', 'Mauve', 'Violet', 'Bleu', 'Jaune']
-        # Colors only work for a specific rubik's cube. Adapt for any other colors.
-        colors_n = [[204, 38, 12], [77, 155, 21], [124, 70, 59], [99, 90, 64], [44, 97, 112], [137, 107, 9]]
-        min_diff = 100000000
-        min_col = None
-        for col_n, i in zip(colors_n, range(6)):
-            diff = 0
-            diff += (col_n[0] - new_col_n[0]) * (col_n[0] - new_col_n[0]) + (col_n[1] - new_col_n[1]) * (col_n[1] - new_col_n[1]) + (col_n[2] - new_col_n[2]) * (col_n[2] - new_col_n[2])
-            if min_diff > diff:
-                min_diff = diff
-                index_c = i
-
-        print names[index_c]
-        return str(index_c + 1)
-
+        val_max = 255.#float(max(255,R,G,B))
+        h,l,s = colorsys.rgb_to_hls(R / val_max, G / val_max, B / val_max)
+        return h,s,l
+        
     def scan_face(self):
         if (self.mot_push.get_position() > 15):
             self.mot_push.goto_position(5, 35, regulate=1, brake=1, hold=0)
             self.mot_push.wait_for_stop()
         self.put_arm_middle()
         self.mot_bras.wait_for_stop()
-        self.cube[Rubiks.scan_order[self.k]] = self.get_color()
+        self.colors.append((Rubiks.scan_order[self.k],self.get_hsl_colors()))
         self.k += 1
         i = 0
         self.put_arm_corner(i)
@@ -150,32 +173,23 @@ class Rubiks(Robot):
         time.sleep(0.1)
         while math.fabs(self.mot_rotate.get_speed()) > 4:
             if self.mot_rotate.get_position() >= (i * 135) - 5:
-                self.cube[Rubiks.scan_order[self.k]] = self.get_color()
-                self.k += 1
                 i += 1
+                if i%2:
+                    self.colors.append((Rubiks.scan_order[self.k],self.get_hsl_colors()))
+                else:
+                    self.colors.append((Rubiks.scan_order[self.k],self.get_hsl_colors()))
+                self.k += 1
                 if i % 2 and i < 9:
                     self.put_arm_corner(i)
                 elif i < 9:
-                    self.put_arm_border(i)
-            time.sleep(0.01)
+                    self.put_arm_edge(i)
+            time.sleep(0.05)
 
         self.remove_arm()
         self.mot_bras.wait_for_stop()
     
-    def move(self, face_down):
-        position = self.state.index(face_down)
-        actions = {
-         0: ["flip", "flip"],
-         1: [],
-         2: ["rotate_cube_2", "flip"],
-         3: ["rotate_cube_1", "flip"],
-         4: ["flip"],
-         5: ["rotate_cube_3", "flip"]
-        }.get(position, None)
-        for a in actions:
-            getattr(self, a)()
-   
     def scan(self):
+        self.colors = []
         self.bloc_cube()
         self.k = 0
         self.scan_face()
@@ -191,13 +205,27 @@ class Rubiks(Robot):
         self.scan_face()
         self.flip()
         self.scan_face()
+        self.cluster_colors ()
         print self.cube
         self.cube = [ self.cube[i + 1] for i in range(len(self.cube)) ]
         print ''.join(self.cube)
         
+    def move(self, face_down):
+        position = self.state.index(face_down)
+        actions = {
+         0: ["flip", "flip"],
+         1: [],
+         2: ["rotate_cube_2", "flip"],
+         3: ["rotate_cube_1", "flip"],
+         4: ["flip"],
+         5: ["rotate_cube_3", "flip"]
+        }.get(position, None)
+        for a in actions:
+            getattr(self, a)()
+   
     def resolve(self, computer):
         if computer:
-            output = Popen(['ssh', 'login@192.168.3.235', 'pass_to_twophase/twophase.py ' + ''.join(self.cube)], stdout=PIPE).communicate()[0]
+            output = Popen(['ssh', 'login@192.168.3.235', 'twophase.py ' + ''.join(self.cube)], stdout=PIPE).communicate()[0]
             output = output.strip()
             actions = output.split(' ')
             print actions
@@ -225,9 +253,9 @@ class Rubiks(Robot):
                     rotation_dir = list(a)[1]
                     self.move(face_down)
                     if rotation_dir == 'R':
-                        self.rotate_cube_blocked(-1, 1, blocked=True)
+                        self.rotate_cube_blocked_3()
                     else:
-                        self.rotate_cube_blocked(1, 1, blocked=True)
+                        self.rotate_cube_blocked_1()
         self.cube_done()
     
     def cube_done(self):
