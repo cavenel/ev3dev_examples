@@ -1,47 +1,42 @@
-import glob
+import pyudev
 import time
-import sys
-import math
-from subprocess import *
+from subprocess import Popen
 import os
+import math
 
-class Communicate():
-    onoff = ['off', 'on']
+class Communicate(object):
+    @staticmethod
+    def read(path):
+        with open(path, 'r') as pin:
+            return pin.read().strip()
 
-    def read(self, path):
-        pin = open(path, 'r')
-        try:
-            value = pin.read()
-        except:
-            value = '0'
+    @staticmethod
+    def write(path, value):
+        with open(path, 'w') as pout:
+            pout.write(value)
 
-        pin.close()
-        return value
-
-    def write(self, path, value):
-        pout = open(path, 'w')
-        pout.write(value)
-        pout.close()
-
-    def set_on_off(self, path, value):
-        self.write(path, Communicate.onoff[value])
+    @staticmethod
+    def min_max(value, mini=-100, maxi=100):
+        return max(mini, min(maxi, value))
 
 
 class Sensor(Communicate):
+    def __init__(self, type_id=None, port=None):
+        if port and port not in ('1', '2', '3', '4'):
+            raise ValueError('Sensor Port is not valid')
 
-    def __init__(self, type_id = -1):
-        self.mode = None
-        if type_id != -1:
-            self.set_path_from_type_id(type_id)
-        else:
-            self.path = None
+        for sensor in pyudev.Context().list_devices(subsystem='msensor'):
+            if type_id:
+                if type_id == int(sensor.get('TYPEID')):
+                    self.path = sensor.sys_path
+                    break
+            if port:
+                if 'in' +  port == sensor.get('PORT', ''):
+                    self.path = sensor.sys_path
+                    break
 
-    def set_path_from_type_id(self, type_id):
-        self.path = None
-        for sensor_p in glob.glob('/sys/class/msensor/sensor*'):
-            sensor_type_id = int(self.read(sensor_p + '/type_id'))
-            if sensor_type_id == type_id:
-                self.path = sensor_p
+        else:  # I love for-else blocks
+            raise EnvironmentError("Sensor not found")
 
     def set_mode(self, mode):
         if self.mode != mode:
@@ -61,7 +56,6 @@ class Sensor(Communicate):
 
 
 class Touch_sensor(Sensor):
-
     def __init__(self):
         Sensor.__init__(self, type_id=16)
 
@@ -79,13 +73,20 @@ class Color_sensor(Sensor):
         self.set_mode('RGB-RAW')
         return self.get_values(3)
 
+    def get_reflect(self):
+        self.set_mode('COL-REFLECT')
+        return self.get_value()
+
+    def get_ambient(self):
+        self.set_mode('COL-AMBIENT')
+        return self.get_value()
+
     def get_color(self):
         self.set_mode('COL-COLOR')
-        return self.get_value()
+        return colors[self.get_value()]
 
 
 class Infrared_sensor(Sensor):
-
     def __init__(self):
         Sensor.__init__(self, type_id=33)
 
@@ -116,10 +117,17 @@ class Infrared_sensor(Sensor):
 
 
 class Motor(Communicate):
+    def __init__(self, port):
+        if port.upper() not in ('A', 'B', 'C', 'D'):
+            raise ValueError('Motor Port is not valid')
 
-    def __init__(self, port = None):
-        if port:
-            self.path = '/sys/class/tacho-motor/out' + port + ':motor:tacho/'
+        for device in pyudev.Context().list_devices(subsystem='tacho-motor'):
+            if 'out' + port.upper() == device.get('PORT', ''):
+                self.path = device.sys_path + '/'
+                break
+
+        else:
+            raise EnvironmentError("Motor not found")
 
     def set_run_mode(self, value):
         path = self.path + 'run_mode'
@@ -127,22 +135,16 @@ class Motor(Communicate):
         while self.get_run_mode() != value:
             time.sleep(0.05)
 
-    def set_brake_mode(self, value):
-        path = self.path + 'brake_mode'
-        self.set_on_off(path, value)
-        while self.get_brake_mode() != Communicate.onoff[value]:
-            time.sleep(0.05)
-
-    def set_hold_mode(self, value):
-        path = self.path + 'hold_mode'
-        self.set_on_off(path, value)
-        while self.get_hold_mode() != Communicate.onoff[value]:
+    def set_stop_mode(self, value):
+        path = self.path + 'stop_mode'
+        self.write(path, value)
+        while self.get_stop_mode() != value:
             time.sleep(0.05)
 
     def set_regulation_mode(self, value):
         path = self.path + 'regulation_mode'
-        self.set_on_off(path, value)
-        while self.get_regulation_mode() != Communicate.onoff[value]:
+        self.write(path, value)
+        while self.get_regulation_mode() != value:
             time.sleep(0.05)
 
     def set_position_mode(self, value):
@@ -152,41 +154,58 @@ class Motor(Communicate):
             time.sleep(0.05)
 
     def get_run_mode(self):
-        return self.read(self.path + 'run_mode').strip()
+        return self.read(self.path + 'run_mode')
 
-    def get_brake_mode(self):
-        return self.read(self.path + 'brake_mode').strip()
-
-    def get_hold_mode(self):
-        return self.read(self.path + 'hold_mode').strip()
+    def get_stop_mode(self):
+        return self.read(self.path + 'stop_mode')
 
     def get_regulation_mode(self):
-        return self.read(self.path + 'regulation_mode').strip()
+        return self.read(self.path + 'regulation_mode')
 
     def get_position_mode(self):
-        return self.read(self.path + 'position_mode').strip()
+        return self.read(self.path + 'position_mode')
 
-    def set_speed(self, value):
-        path = self.path + 'speed_setpoint'
+    # ___ sp ___
+    
+    def set_duty_cycle_sp(self, value):
+        path = self.path + 'duty_cycle_sp'
         self.write(path, str(value))
 
-    def set_time(self, value):
-        path = self.path + 'time_setpoint'
+    def set_pulses_per_second_sp(self, value):
+        path = self.path + 'pulses_per_second_sp'
         self.write(path, str(value))
 
-    def set_position(self, value):
-        path = self.path + 'position_setpoint'
+    def set_time_sp(self, value):
+        path = self.path + 'time_sp'
         self.write(path, str(value))
 
-    def reset_position(self, value = 0):
-        path = self.path + 'position'
+    def set_position_sp(self, value):
+        path = self.path + 'position_sp'
         self.write(path, str(value))
+
+    def get_duty_cycle_sp(self):
+        return int(self.read(self.path + 'duty_cycle_sp'))
+
+    def get_pulses_per_second_sp(self):
+        return int(self.read(self.path + 'pulses_per_second_sp'))
+
+    def get_time_sp(self):
+        return int(self.read(self.path + 'time_sp'))
 
     def get_position(self):
         return int(self.read(self.path + 'position'))
 
-    def get_speed(self):
-        return int(self.read(self.path + 'speed'))
+    # ___ info ___
+    
+    def reset_position(self, value = 0):
+        path = self.path + 'position'
+        self.write(path, str(value))
+
+    def get_duty_cycle(self):
+        return int(self.read(self.path + 'duty_cycle'))
+
+    def get_position(self):
+        return int(self.read(self.path + 'position'))
 
     def get_power(self):
         return int(self.read(self.path + 'power'))
@@ -194,72 +213,94 @@ class Motor(Communicate):
     def get_state(self):
         return self.read(self.path + 'state')
 
+    # ___ macros ___
+
     def set_ramps(self, up, down):
-        path = self.path + 'ramp_up'
+        path = self.path + 'ramp_up_sp'
         self.write(path, str(up))
-        path = self.path + 'ramp_down'
-        if down > 10000:
-            down = 10000
+        path = self.path + 'ramp_down_sp'
         self.write(path, str(down))
 
-    def rotate_forever(self, speed, regulate = 0, brake = 1, hold = 0):
+    def rotate_forever(self, speed=480, regulate='on', stop_mode='brake'):
         self.set_run_mode('forever')
-        self.set_brake_mode(brake)
-        self.set_hold_mode(hold)
-        self.set_speed(speed)
+        self.set_stop_mode(stop_mode)
+        if regulate=='on':
+            self.set_pulses_per_second_sp(speed)
+        else:
+            self.set_duty_cycle_sp(speed)
         self.set_regulation_mode(regulate)
         self.run()
 
-    def rotate_time(self, time, speed, up = 0, down = 0, regulate = 0, brake = 1, hold = 0):
+    def rotate_time(self, time, speed=480, up=0, down=0, regulate='on', stop_mode='brake'):
         self.set_run_mode('time')
-        self.set_brake_mode(brake)
-        self.set_hold_mode(hold)
+        self.set_stop_mode(stop_mode)
         self.set_regulation_mode(regulate)
         self.set_ramps(up, down)
-        self.set_time(time)
-        self.set_speed(speed)
+        if regulate=='on':
+            self.set_pulses_per_second_sp(speed)
+        else:
+            self.set_duty_cycle_sp(speed)
+        self.set_time_sp(time)
         self.run()
 
-    def rotate_position(self, position, speed, up = 0, down = 0, regulate = 0, brake = 1, hold = 0, reset = 1):
+    def rotate_position(self, position, speed=480, up=0, down=0, regulate='on', stop_mode='brake'):
         self.set_run_mode('position')
-        if reset:
-            self.reset_position()
         self.set_position_mode('relative')
-        self.set_brake_mode(brake)
-        self.set_hold_mode(hold)
+        self.set_stop_mode(stop_mode)
         self.set_regulation_mode(regulate)
         self.set_ramps(up, down)
-        self.set_speed(speed)
-        self.set_position(position)
+        if regulate=='on':
+            self.set_pulses_per_second_sp(speed)
+        else:
+            self.set_duty_cycle_sp(speed)
+        self.set_position_sp(position)
         self.run()
 
-    def goto_position(self, position, speed, up = 0, down = 0, regulate = 0, brake = 1, hold = 0):
+    def goto_position(self, position, speed=480, up=0, down=0, regulate='on', stop_mode='brake', wait=0):
         self.set_run_mode('position')
         self.set_position_mode('absolute')
-        self.set_brake_mode(brake)
-        self.set_hold_mode(hold)
+        self.set_stop_mode(stop_mode)
         self.set_regulation_mode(regulate)
         self.set_ramps(up, down)
-        self.set_speed(speed)
-        self.set_position(position)
+        if regulate=='on':
+            self.set_pulses_per_second_sp(speed)
+        else:
+            self.set_duty_cycle_sp(speed)
+        self.set_position_sp(position)
+        sign = math.copysign(1, self.get_position() - position)
         self.run()
+        if (wait):
+            new_pos = self.get_position()
+            nb_same = 0
+            while (sign * (new_pos - position) > 5):
+                time.sleep(0.05)
+                old_pos = new_pos
+                new_pos = self.get_position()
+                if old_pos == new_pos:
+                    nb_same += 1
+                else:
+                    nb_same = 0
+                if nb_same > 10:
+                    break
+            time.sleep(0.05)
+            if (not stop_mode == "hold"):
+                self.stop()
 
     def wait_for_stop(self):
         time.sleep(0.1)
-        while math.fabs(self.get_speed()) > 3:
+        while abs(self.get_duty_cycle()) > 3:
             time.sleep(0.05)
 
-    def run(self, value = 1):
+    def run(self, value=1):
         path = self.path + 'run'
         self.write(path, str(value))
 
-    def stop(self, hold = 0):
+    def stop(self, stop_mode='coast'):
         self.run(0)
-        self.set_hold_mode(hold)
+        self.set_stop_mode(stop_mode)
 
 
 class LCD(Communicate):
-
     def __init__(self):
         self.LCD_path = '/dev/fb0'
 
@@ -268,7 +309,6 @@ class LCD(Communicate):
 
 
 class Leds(Communicate):
-
     def __init__(self):
         self.path = '/sys/class/leds/'
 
@@ -310,14 +350,21 @@ class Leds(Communicate):
 
 
 class Robot(Communicate):
-
     def __init__(self):
         self.leds = Leds()
         self.LCD = LCD()
 
-    def talk(self, s):
+    def beep(self):
         self.write('/sys/devices/platform/snd-legoev3/volume', '100')
-        os.system('espeak -v en -p 0 -s 120 "' + s + '" --stdout | aplay')
+        os.system('beep')
+
+    def talk(self, s, wait=1):
+        self.write('/sys/devices/platform/snd-legoev3/volume', '100')
+        if wait:
+            os.system('espeak -v en -p 20 -s 120 "' + s + '" --stdout | aplay')
+        else:
+            espeak = Popen(("espeak","-v","en","-p","20","-s","120",'"' + s + '"',"--stdout"), stdout=PIPE)
+            output = check_output(('aplay'), stdin=espeak.stdout)
 
     def show_image(self, path):
         os.system('fbi -d /dev/fb0 -T 1 -noverbose -a ' + path)
