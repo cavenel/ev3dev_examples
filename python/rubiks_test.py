@@ -3,19 +3,31 @@
 
 from pyev3.rubiks import Rubiks
 
+import logging
 import time
+
+logging.basicConfig(level=logging.DEBUG,
+                    format='%(asctime)s %(levelname)5s: %(message)s')
+log = logging.getLogger(__name__)
 
 rub = Rubiks()
 rubiks_present = 0
+rubiks_present_target = 10
 
-while(True):
+while True:
     dist = rub.infrared_sensor.get_prox()
-    if (dist > 7 and dist < 15):
+    if (dist > 10 and dist < 50):
         rubiks_present += 1
+        log.info("wait for cube...proximity %d, present for %d/%d" % (dist, rubiks_present, rubiks_present_target))
     else:
+        if rubiks_present:
+            log.info('wait for cube...cube removed')
         rubiks_present = 0
-    if rubiks_present > 10:
+
+    if rubiks_present >= rubiks_present_target:
+        log.info('wait for cube...cube found and stable')
         break
+
     time.sleep(0.1)
 
 rub.scan()
