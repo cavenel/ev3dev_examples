@@ -32,7 +32,7 @@ while True:
 
 rub.scan()
 last_time = time.time()
-rub.resolve(computer = 0)
+rub.resolve(computer=0)
 total = time.time() - last_time
 total = int(total)
 rub.talk(str(total) + " seconds. Ha ha ha.")

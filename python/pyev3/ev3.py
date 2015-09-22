@@ -7,7 +7,9 @@ import logging
 
 log = logging.getLogger(__name__)
 
+
 class Communicate(object):
+
     @staticmethod
     def read(path):
         with open(path, 'r') as pin:
@@ -24,6 +26,7 @@ class Communicate(object):
 
 
 class Sensor(Communicate):
+
     def __init__(self, type_id=None, port=None):
         if port and port not in ('1', '2', '3', '4'):
             raise ValueError('Sensor Port is not valid')
@@ -70,6 +73,7 @@ class Sensor(Communicate):
 
 
 class Touch_sensor(Sensor):
+
     def __init__(self):
         Sensor.__init__(self, type_id='lego-ev3-touch')
 
@@ -101,6 +105,7 @@ class Color_sensor(Sensor):
 
 
 class Infrared_sensor(Sensor):
+
     def __init__(self):
         Sensor.__init__(self, type_id='lego-ev3-ir')
 
@@ -131,6 +136,7 @@ class Infrared_sensor(Sensor):
 
 
 class Motor(Communicate):
+
     def __init__(self, port, desc=None):
         if port.upper() not in ('A', 'B', 'C', 'D'):
             raise ValueError('Motor Port is not valid')
@@ -176,7 +182,7 @@ class Motor(Communicate):
         self.write(path, str(value))
 
     def set_position_sp(self, value):
-        #log.info("%s set_position_sp %s" % (self, value))
+        # log.info("%s set_position_sp %s" % (self, value))
         path = self.path + 'position_sp'
         self.write(path, str(int(value)))
 
@@ -194,7 +200,7 @@ class Motor(Communicate):
     def reset(self):
         self._write_file('command', 'reset')
 
-    def reset_position(self, value = 0):
+    def reset_position(self, value=0):
         path = self.path + 'position'
         self.write(path, str(value))
 
@@ -262,7 +268,6 @@ class Motor(Communicate):
         assert value in ('on', 'off'), "%s is not supported" % value
         self._write_file('speed_regulation', value)
 
-
     # ___ macros ___
 
     def set_ramps(self, up, down):
@@ -274,7 +279,7 @@ class Motor(Communicate):
     def rotate_forever(self, speed=480, regulate='on', stop_mode='brake'):
         log.info("%s rotate_forever at speed %d" % (self, speed))
         self.set_stop_mode(stop_mode)
-        if regulate=='on':
+        if regulate == 'on':
             self.set_speed_sp(speed)
         else:
             self.set_duty_cycle_sp(speed)
@@ -286,7 +291,7 @@ class Motor(Communicate):
         self.set_stop_mode(stop_mode)
         self.set_regulation_mode(regulate)
         self.set_ramps(up, down)
-        if regulate=='on':
+        if regulate == 'on':
             self.set_speed_sp(speed)
         else:
             self.set_duty_cycle_sp(speed)
@@ -298,7 +303,7 @@ class Motor(Communicate):
         self.set_stop_mode(stop_mode)
         self.set_regulation_mode(regulate)
         self.set_ramps(up, down)
-        if regulate=='on':
+        if regulate == 'on':
             self.set_speed_sp(speed)
         else:
             self.set_duty_cycle_sp(speed)
@@ -311,7 +316,7 @@ class Motor(Communicate):
         self.set_regulation_mode(regulate)
         self.set_ramps(up, down)
 
-        if regulate=='on':
+        if regulate == 'on':
             self.set_speed_sp(speed)
         else:
             self.set_duty_cycle_sp(speed)
@@ -332,7 +337,7 @@ class Motor(Communicate):
 
         while True:
             curr = self.get_position()
-            #log.info("%s wait_for_stop prev %s, curr %s" % (self, prev, curr))
+            # log.info("%s wait_for_stop prev %s, curr %s" % (self, prev, curr))
 
             if prev is not None and abs(curr - prev) < 3:
                 no_movement += 1
@@ -354,6 +359,7 @@ class Motor(Communicate):
 
 
 class LCD(Communicate):
+
     def __init__(self):
         self.LCD_path = '/dev/fb0'
 
@@ -362,6 +368,7 @@ class LCD(Communicate):
 
 
 class Leds(Communicate):
+
     def __init__(self):
         self.path = '/sys/class/leds/'
 
@@ -403,6 +410,7 @@ class Leds(Communicate):
 
 
 class Robot(Communicate):
+
     def __init__(self):
         self.leds = Leds()
         self.LCD = LCD()
@@ -416,9 +424,8 @@ class Robot(Communicate):
         if wait:
             os.system('espeak -v en -p 20 -s 120 "' + s + '" --stdout | aplay')
         else:
-            espeak = Popen(("espeak","-v","en","-p","20","-s","120",'"' + s + '"',"--stdout"), stdout=PIPE)
+            espeak = Popen(("espeak", "-v", "en", "-p", "20", "-s", "120", '"' + s + '"', "--stdout"), stdout=PIPE)
             output = check_output(('aplay'), stdin=espeak.stdout)
 
     def show_image(self, path):
         os.system('fbi -d /dev/fb0 -T 1 -noverbose -a ' + path)
-
