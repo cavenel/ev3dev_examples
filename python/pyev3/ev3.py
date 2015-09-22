@@ -7,6 +7,15 @@ import logging
 
 log = logging.getLogger(__name__)
 
+def median(data):
+    data = sorted(data)
+
+    if len(data) < 1:
+        return None
+    elif len(data) % 2 == 1:
+        return data[((len(data)+1)/2)-1]
+    else:
+        return float(sum(data[(len(data)/2)-1:(len(data)/2)+1]))/2.0
 
 class Communicate(object):
 

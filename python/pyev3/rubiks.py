@@ -195,35 +195,41 @@ class Rubiks(Robot):
         """
         Function to put the cube in a good position
 
-        Turn the cube one full rotation and measure the proximity via the
+        Turn the cube one 1/4 rotation and measure the proximity via the
         IR sensor while it is rotating. We get a lower proximity value when
-        the cube is square (this seems a little odd but that is what the data
-        shows) so record the (proximity, position) tuples in the foo list.
+        the cube is square (there is more surface area facing the sensor)
+        Record the (proximity, position) tuples in the data list.
 
-        Then sort foo by proximity and turn the table to the position for
+        Then sort data by proximity and turn the table to the position for
         that entry.
         """
         log.info("square up the cube turntable")
         self.mot_rotate.rotate_position(270, speed=200)
 
-        foo = []
+        data = []
         while self.mot_rotate.is_running():
-            foo.append((self.infrared_sensor.get_prox(), self.mot_rotate.get_position()))
+            data.append((self.infrared_sensor.get_prox(), self.mot_rotate.get_position()))
             time.sleep(0.05)
 
-        foo = sorted(foo)
-        # TODO get the median of the tie scores
-        '''
-[(16, 1040),
- (16, 1052),
- (16, 1064),
- (16, 1075),
-        '''
+        data = sorted(data)
+        log.info("bloc cube data\n%s" % pformat(data))
 
-        log.info("bloc cube data\n%s" % pformat(foo))
+        best_proximity = data[0][0]
+        best_positions = []
+
+        for (proximity, position) in data:
+            if proximity == best_proximity:
+                best_positions.append(position)
+            else:
+                break
+        log.info("bloc cube best positions\n%s" % pformat(best_positions))
+
+        target_position = median(best_positions)
+        log.info("bloc cube target position: %d" % target_position)
+
         self.mot_rotate.wait_for_stop()
         self.mot_rotate.stop()
-        self.mot_rotate.goto_position(foo[0][1], 400)
+        self.mot_rotate.goto_position(target_position, 400)
         self.mot_rotate.wait_for_stop()
         self.mot_rotate.stop()
         self.mot_rotate.reset()
@@ -288,11 +294,6 @@ class Rubiks(Robot):
 
     def scan_face(self):
         log.info('scanning face')
-
-        if (self.mot_push.get_position() > 15):
-            self.mot_push.goto_position(5, 35)
-            self.mot_push.wait_for_stop()
-
         self.put_arm_middle()
         self.mot_bras.wait_for_stop()
         self.mot_bras.stop()
