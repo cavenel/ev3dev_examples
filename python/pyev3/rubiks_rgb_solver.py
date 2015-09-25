@@ -375,6 +375,20 @@ class RubiksColorSolver(object):
 
         log.info("Cube\n\n%s\n" % '\n'.join(output))
 
+    def cube_for_kociemba(self):
+        data = []
+
+        color_to_num = {}
+
+        for side in self.sides.itervalues():
+            color_to_num[side.middle_square.color] = side.name
+
+        for side in (self.sideU, self.sideR, self.sideF, self.sideD, self.sideL, self.sideB):
+            for x in xrange(side.min_pos, side.max_pos+1):
+                color = side.squares[x].color
+                data.append(color_to_num[color])
+        return data
+
     def cube_for_cubex(self):
         """
         Return a numerical representation of the colors.  Assign each color a
@@ -384,16 +398,17 @@ class RubiksColorSolver(object):
 
         color_index = 1
         color_to_num = {}
+
+        for side_name in self.side_order:
+            side = self.sides[side_name]
+            color_to_num[side.middle_square.color] = color_index
+            color_index += 1
+
         for side_name in self.side_order:
             side = self.sides[side_name]
 
             for x in xrange(side.min_pos, side.max_pos+1):
                 color = side.squares[x].color
-
-                if color not in color_to_num:
-                    color_to_num[color] = color_index
-                    color_index += 1
-
                 data.append(color_to_num[color])
         return data
 
@@ -702,7 +717,6 @@ class RubiksColorSolver(object):
         just call cubex and see if it found an error.
         """
         arg = ''.join(map(str, self.cube_for_cubex()))
-        log.info(arg)
         output = Popen([self.cubex_file, arg], stdout=PIPE).communicate()[0]
         output = output.strip()
         if 'error' in output:
@@ -756,10 +770,10 @@ class RubiksColorSolver(object):
 
         score_per_permutation = sorted(score_per_permutation)
 
-        if os.path.isfile('./utils/cubex_ev3'):
-            self.cubex_file = './utils/cubex_ev3'
+        if os.path.isfile('./utils/rubiks_solvers/cubex_C_ARM/cubex_ev3'):
+            self.cubex_file = './utils/rubiks_solvers/cubex_C_ARM/cubex_ev3'
         elif os.path.isfile('../utils/cubex_ev3'):
-            self.cubex_file = '../utils/cubex_ev3'
+            self.cubex_file = '../utils/rubiks_solvers/cubex_C_ARM/cubex_ev3'
 
         for (_, permutation) in score_per_permutation:
             total_distance = 0
@@ -871,3 +885,5 @@ if __name__ == '__main__':
     cube = RubiksColorSolver()
     cube.enter_scan_data(color_parity2)
     cube.crunch_colors()
+    print ''.join(map(str, cube.cube_for_cubex()))
+    print ''.join(cube.cube_for_kociemba())

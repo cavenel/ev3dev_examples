@@ -73,9 +73,9 @@ for n in facets_name:
     colors = [cube[i-1] for i in facets_position[n]]
     twophase_in += colors_to_facet(colors) + " "
 
-cmd = ["twophase", "-s", "25", "-t", "1", "-q"]
-#print ' '.join(cmd)
-#print twophase_in
+cmd = ["./twophase", "-s", "25", "-t", "1", "-q"]
+print ' '.join(cmd)
+print twophase_in
 
 process = subprocess.Popen(cmd,stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.PIPE)
 process.stdin.write(twophase_in)
