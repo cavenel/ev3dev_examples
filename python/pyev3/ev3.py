@@ -307,7 +307,7 @@ class Motor(Communicate):
         self.set_time_sp(time)
         self.set_run_mode('run-timed')
 
-    def rotate_position(self, position, speed=480, up=0, down=0, regulate='on', stop_mode='brake'):
+    def rotate_position(self, position, speed=480, up=0, down=0, regulate='on', stop_mode='brake', accuracy_sp=None):
         log.info("%s rotate for %d at speed %d" % (self, position, speed))
         self.set_stop_mode(stop_mode)
         self.set_regulation_mode(regulate)
@@ -319,7 +319,21 @@ class Motor(Communicate):
         self.set_position_sp(position)
         self.set_run_mode('run-to-rel-pos')
 
-    def goto_position(self, position, speed=480, up=0, down=0, regulate='on', stop_mode='brake', wait=0):
+    def goto_exact_position(self, position, regulate='on', accuracy_sp=None):
+        if regulate != 'on':
+            raise Exception("accuracy_sp only works with regulate=on")
+
+        self.set_speed_sp(accuracy_sp)
+        current_pos = self.get_position()
+        #log.info("Current pos %d, target pos %d" % (current_pos, position))
+
+        while current_pos != position:
+            self.set_run_mode('run-to-abs-pos')
+            self.wait_for_stop()
+            current_pos = self.get_position()
+            #log.info("Current pos %d, target pos %d" % (current_pos, position))
+
+    def goto_position(self, position, speed=480, up=0, down=0, regulate='on', stop_mode='brake', wait=0, accuracy_sp=None):
         #log.info("%s rotate to %d at speed %d" % (self, position, speed))
         self.set_stop_mode(stop_mode)
         self.set_regulation_mode(regulate)
@@ -334,11 +348,15 @@ class Motor(Communicate):
         sign = math.copysign(1, self.get_position() - position)
         self.set_run_mode('run-to-abs-pos')
 
-        if (wait):
+        if accuracy_sp or wait:
             self.wait_for_stop()
 
-            if (not stop_mode == "hold"):
-                self.stop()
+            #if (not stop_mode == "hold"):
+            #    self.stop()
+
+        # If accuracy_sp is set we must rotate the motor to the EXACT degree desired
+        if accuracy_sp:
+            self.goto_exact_position(position, regulate, accuracy_sp)
 
     def wait_for_stop(self):
         prev = None

@@ -53,15 +53,15 @@ class Rubiks(Robot):
         if (self.mot_push.get_position() > 15):
             self.push_arm_away()
 
-        pre_rotation = 135 * round(self.mot_rotate.get_position() / 135.0)
+        final_dest = 135 * round((self.mot_rotate.get_position() + (270 * direction * nb)) / 135.0)
+
         self.mot_rotate.goto_position(
-            pre_rotation + 270 * direction * nb,
+            final_dest,
             Rubiks.rotate_speed,
             0,
             300,
-            stop_mode='hold')
+            stop_mode='hold', accuracy_sp=100)
 
-        # time.sleep(nb * 60 * 0.7 / Rubiks.rotate_speed)
         self.mot_rotate.wait_for_stop()
         self.mot_rotate.stop()
 
@@ -88,29 +88,26 @@ class Rubiks(Robot):
         self.mot_push.goto_position(120, 300, 0, 300, stop_mode='hold')
         self.mot_push.wait_for_stop()
 
-        OVERROTATE = 40
-        pre_rotation = 135 * round(self.mot_rotate.get_position() / 135.0)
-        destination = pre_rotation + (270 * direction * nb) + (OVERROTATE * direction)
-        log.info("dest %d, pre_rotation %d, direction %d, nb %d" % (destination, pre_rotation, direction, nb))
+        OVERROTATE = 55
+        final_dest = 135 * round((self.mot_rotate.get_position() + (270 * direction * nb)) / 135.0)
+        temp_dest = final_dest + (OVERROTATE * direction)
+        #log.info("temp_dest %d, final_dest %d" % (temp_dest, final_dest))
 
-        # dwalton - here
         self.mot_rotate.goto_position(
-            destination,
+            temp_dest,
             Rubiks.rotate_speed,
             0,
             300,
-            stop_mode='hold')
+            stop_mode='hold', accuracy_sp=100)
         self.mot_rotate.wait_for_stop()
         self.mot_rotate.stop()
 
-        #time.sleep(nb * 60 * 0.7 / Rubiks.rotate_speed)
-
         self.mot_rotate.goto_position(
-            pre_rotation + (270 * direction * nb),
+            final_dest,
             Rubiks.rotate_speed/2,
             0,
             0,
-            stop_mode='hold')
+            stop_mode='hold', accuracy_sp=100)
         self.mot_rotate.wait_for_stop()
         self.mot_rotate.stop()
 
@@ -278,7 +275,14 @@ class Rubiks(Robot):
 
         self.mot_rotate.wait_for_stop()
         self.mot_rotate.stop()
-        self.mot_rotate.reset_position()
+
+        # If we over rotated at all, back up
+        self.mot_rotate.goto_position(1080, 200, 0, 0, 'on', stop_mode='hold', accuracy_sp=100)
+        self.mot_rotate.wait_for_stop()
+        self.mot_rotate.stop()
+        self.mot_rotate.reset()
+
+        #self.mot_rotate.reset_position()
         self.remove_arm()
         self.mot_bras.wait_for_stop()
 
@@ -326,18 +330,16 @@ class Rubiks(Robot):
             getattr(self, a)()
 
     def run_cubex_actions(self, actions):
-        for a in actions:
-            if a != "":
-                face_down = list(a)[0]
-                rotation_dir = list(a)[1]
-                self.move(face_down)
+        total_actions = len(actions)
+        for (i, a) in enumerate(actions):
+            (face_down, rotation_dir) = list(a)
+            log.info("Move %d/%d: %s%s" % (i, total_actions, face_down, rotation_dir))
+            self.move(face_down)
 
-                if rotation_dir == 'R':
-                    self.rotate_cube_blocked_3()
-                else:
-                    self.rotate_cube_blocked_1()
+            if rotation_dir == 'R':
+                self.rotate_cube_blocked_3()
             else:
-                log.info('blank action')
+                self.rotate_cube_blocked_1()
 
     def resolve(self, computer):
         if computer:
@@ -409,13 +411,17 @@ class Rubiks(Robot):
         rubiks_missing = 0
         rubiks_missing_target = 10
 
+        i = 0
         while True:
             dist = self.infrared_sensor.get_prox()
             if dist > 50:
                 rubiks_missing += 1
                 log.info('wait for cube removed...cube out')
             else:
-                log.info('wait for cube removed...cube still there')
+                i += 1
+                if i == 100:
+                    log.info('wait for cube removed...cube still there')
+                    i = 0
                 rubiks_missing = 0
 
             if rubiks_missing >= rubiks_missing_target:

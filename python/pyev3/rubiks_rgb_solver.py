@@ -840,7 +840,7 @@ if __name__ == '__main__':
                         format='%(asctime)s %(levelname)5s: %(message)s')
     log = logging.getLogger(__name__)
 
-    from testdata import corner_parity1, solved_cube1
+    from testdata import corner_parity1, solved_cube1, color_parity2
     cube = RubiksColorSolver()
-    cube.enter_scan_data(solved_cube1)
+    cube.enter_scan_data(color_parity2)
     cube.crunch_colors()

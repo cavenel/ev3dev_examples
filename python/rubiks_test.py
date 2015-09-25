@@ -4,9 +4,10 @@
 from pyev3.rubiks import Rubiks
 from time import time as current_time
 import logging
+import sys
 
 logging.basicConfig(level=logging.INFO,
-                    format='%(asctime)s %(levelname)8s: %(filename)s line:%(lineno)s: %(message)s')
+                    format='%(asctime)s %(filename)12s %(levelname)8s: %(message)s')
 log = logging.getLogger(__name__)
 log.info('import complete')
 
