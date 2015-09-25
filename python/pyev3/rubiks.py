@@ -368,7 +368,7 @@ class Rubiks(Robot):
                         self.rotate_cube_blocked_3()
 
         else:
-            output = Popen(['./utils/cubex_ev3', ''.join(map(str, self.cube))], stdout=PIPE).communicate()[0]
+            output = Popen(['./utils/rubiks_solvers/cubex_C_ARM/cubex_ev3', ''.join(map(str, self.cube))], stdout=PIPE).communicate()[0]
             actions = output.strip().replace(' ', '').split(',')
             log.info('Action (cubex_ev3): %s' % pformat(actions))
             self.run_cubex_actions(actions)
