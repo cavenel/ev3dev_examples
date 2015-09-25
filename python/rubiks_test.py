@@ -2,44 +2,29 @@
 # coding: utf-8
 
 from pyev3.rubiks import Rubiks
-
+from time import time as current_time
 import logging
-import time
 
-logging.basicConfig(level=logging.DEBUG,
-                    format='%(asctime)s %(levelname)5s: %(message)s')
+logging.basicConfig(level=logging.INFO,
+                    format='%(asctime)s %(levelname)8s: %(filename)s line:%(lineno)s: %(message)s')
 log = logging.getLogger(__name__)
+log.info('import complete')
 
 rub = Rubiks()
-rubiks_present = 0
-rubiks_present_target = 10
 
 while True:
-    dist = rub.infrared_sensor.get_prox()
-    if (dist > 10 and dist < 50):
-        rubiks_present += 1
-        log.info("wait for cube...proximity %d, present for %d/%d" % (dist, rubiks_present, rubiks_present_target))
-    else:
-        if rubiks_present:
-            log.info('wait for cube...cube removed')
-        rubiks_present = 0
+    rub.wait_for_cube_insert()
+    rub.scan()
 
-    if rubiks_present >= rubiks_present_target:
-        log.info('wait for cube...cube found and stable')
-        break
+    last_time = current_time()
+    rub.resolve(computer=0)
+    total = int(current_time() - last_time)
+    rub.talk(str(total) + " seconds. Ha ha ha.")
 
-    time.sleep(0.1)
-
-rub.scan()
-last_time = time.time()
-rub.resolve(computer=0)
-total = time.time() - last_time
-total = int(total)
-rub.talk(str(total) + " seconds. Ha ha ha.")
-
-rub.mot_push.wait_for_stop()
-rub.mot_bras.wait_for_stop()
-rub.mot_rotate.wait_for_stop()
-rub.mot_push.stop()
-rub.mot_bras.stop()
-rub.mot_rotate.stop()
+    rub.mot_push.wait_for_stop()
+    rub.mot_bras.wait_for_stop()
+    rub.mot_rotate.wait_for_stop()
+    rub.mot_push.stop()
+    rub.mot_bras.stop()
+    rub.mot_rotate.stop()
+    rub.wait_for_cube_removal()

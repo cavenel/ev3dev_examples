@@ -320,7 +320,7 @@ class Motor(Communicate):
         self.set_run_mode('run-to-rel-pos')
 
     def goto_position(self, position, speed=480, up=0, down=0, regulate='on', stop_mode='brake', wait=0):
-        log.info("%s rotate to %d at speed %d" % (self, position, speed))
+        #log.info("%s rotate to %d at speed %d" % (self, position, speed))
         self.set_stop_mode(stop_mode)
         self.set_regulation_mode(regulate)
         self.set_ramps(up, down)

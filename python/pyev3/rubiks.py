@@ -1,66 +1,22 @@
-from ev3 import *
-from pprint import pformat
-import colorsys
 
+from ev3 import *
+from rubiks_rgb_solver import RubiksColorSolver
+from pprint import pformat
+
+class ScanError(Exception):
+    pass
 
 class Rubiks(Robot):
     scan_order = [
-        5,
-        9,
-     6,
-     3,
-     2,
-     1,
-     4,
-     7,
-     8,
-     23,
-     27,
-     24,
-     21,
-     20,
-     19,
-     22,
-     25,
-     26,
-     50,
-     54,
-     51,
-     48,
-     47,
-     46,
-     49,
-     52,
-     53,
-     14,
-     10,
-     13,
-     16,
-     17,
-     18,
-     15,
-     12,
-     11,
-     41,
-     43,
-     44,
-     45,
-     42,
-     39,
-     38,
-     37,
-     40,
-     32,
-     34,
-     35,
-     36,
-     33,
-     30,
-     29,
-     28,
-     31]
+        5, 9, 6, 3, 2, 1, 4, 7, 8,
+        23, 27, 24, 21, 20, 19, 22, 25, 26,
+        50, 54, 51, 48, 47, 46, 49, 52, 53,
+        14, 10, 13, 16, 17, 18, 15, 12, 11,
+        41, 43, 44, 45, 42, 39, 38, 37, 40,
+        32, 34, 35, 36, 33, 30, 29, 28, 31]
 
     rotate_speed = 400
+    corner_to_edge_diff = 60
 
     def __init__(self):
         self.mot_push = Motor('A', 'flipper')
@@ -131,7 +87,7 @@ class Rubiks(Robot):
         self.rotate_cube(-1, 1)
 
     def rotate_cube_blocked(self, direction, nb):
-        self.mot_push.goto_position(120, 30, 0, 300, stop_mode='hold')
+        self.mot_push.goto_position(120, 400, 0, 300, stop_mode='hold')
         self.mot_push.wait_for_stop()
         pre_rotation = 135 * round(self.mot_rotate.get_position() / 135.0)
         self.mot_rotate.goto_position(
@@ -144,8 +100,6 @@ class Rubiks(Robot):
             Rubiks.rotate_speed,
             0,
             300,
-            1,
-            1,
             stop_mode='hold')
         time.sleep(nb * 60 * 0.7 / Rubiks.rotate_speed)
         self.mot_rotate.goto_position(
@@ -156,8 +110,6 @@ class Rubiks(Robot):
             Rubiks.rotate_speed,
             0,
             0,
-            1,
-            1,
             stop_mode='hold')
         time.sleep(0.3)
         self.mot_rotate.stop()
@@ -173,6 +125,7 @@ class Rubiks(Robot):
 
     def flip(self):
 
+        # dwalton
         # Grab the cube and pull back
         self.mot_push.goto_position(180, 450, 200, 0)
         self.mot_push.wait_for_stop()
@@ -204,12 +157,20 @@ class Rubiks(Robot):
         that entry.
         """
         log.info("square up the cube turntable")
-        self.mot_rotate.rotate_position(270, speed=200)
 
         data = []
+
+        # Take a few data points before the cube starts turning.  This is in
+        # case it is already where it should be, we want a measurement before we
+        # move anything.
+        data.append((self.infrared_sensor.get_prox(), self.mot_rotate.get_position()))
+        data.append((self.infrared_sensor.get_prox(), self.mot_rotate.get_position()))
+        data.append((self.infrared_sensor.get_prox(), self.mot_rotate.get_position()))
+
+        self.mot_rotate.rotate_position(540, speed=200)
         while self.mot_rotate.is_running():
             data.append((self.infrared_sensor.get_prox(), self.mot_rotate.get_position()))
-            time.sleep(0.05)
+            #time.sleep(0.05)
 
         data = sorted(data)
         log.info("bloc cube data\n%s" % pformat(data))
@@ -238,72 +199,39 @@ class Rubiks(Robot):
         self.mot_bras.goto_position(-750, 900, stop_mode='hold')
 
     def put_arm_corner(self, i):
+        if i == 2:
+            diff = Rubiks.corner_to_edge_diff
+        elif i == 6:
+            diff = Rubiks.corner_to_edge_diff * -1
+        else:
+            diff = 0
         diff = 0
-        if (i == 2):
-            diff = 20
-        if i == 6:
-            diff = -20
         self.mot_bras.goto_position(-590 - diff, 500, stop_mode='hold')
 
     def put_arm_edge(self, i):
+        #if i >= 2 and i <= 4:
+        #    diff = Rubiks.corner_to_edge_diff
+        #else:
+        #    diff = 0
         diff = 0
-        if i >= 2 and i <= 4:
-            diff = 20
-        self.mot_bras.goto_position(-610 - diff, 500, stop_mode='hold')
+        self.mot_bras.goto_position(-650 - diff, 500, stop_mode='hold')
 
     def remove_arm(self):
         self.mot_bras.goto_position(0, 500)
-
-    def get_color_distance(self, c1, c2):
-        (_, (h1, s1, l1)) = c1
-        (_, (h2, s2, l2)) = c2
-        return math.sqrt((h1 - h2) * (h1 - h2) + (s1 - s2) * (s1 - s2))
-
-    def connect(self, i1, i2):
-        cl1, cl2 = self.clusters[i1], self.clusters[i2]
-        if (self.clusters.count(cl1) + self.clusters.count(cl2) > 9):
-            return None
-        else:
-            for i in [i_ for i_, cl in enumerate(self.clusters) if cl == cl2]:
-                self.clusters[i] = cl1
-
-    def cluster_colors(self):
-        distances = []
-        self.clusters = [i for i, _ in enumerate(self.colors)]
-
-        for i1 in range(len(self.colors)):
-            for i2 in range(i1 + 1, len(self.colors)):
-                distances.append((i1, i2, self.get_color_distance(self.colors[i1], self.colors[i2])))
-        distances.sort(key=lambda _____d: _____d[2])
-
-        for (i1, i2, d) in distances:
-            self.connect(i1, i2)
-
-        for index, c in enumerate(set(self.clusters)):
-            for i in [i_ for i_, cl in enumerate(self.clusters) if cl == c]:
-                self.clusters[i] = index
-        for i, c in enumerate(self.clusters):
-            k, _ = self.colors[i]
-            self.cube[k] = str(c + 1)
-
-    def get_hsl_colors(self):
-        R, G, B = self.color_sensor.get_rgb()
-        val_max = 255.  # float(max(255,R,G,B))
-        h, l, s = colorsys.rgb_to_hls(R / val_max, G / val_max, B / val_max)
-        return h, s, l
 
     def scan_face(self):
         log.info('scanning face')
         self.put_arm_middle()
         self.mot_bras.wait_for_stop()
         self.mot_bras.stop()
-        self.colors.append((Rubiks.scan_order[self.k], self.get_hsl_colors()))
+        self.colors[int(Rubiks.scan_order[self.k])] = tuple(self.color_sensor.get_rgb())
 
         self.k += 1
         i = 0
         self.put_arm_corner(i)
         i += 1
 
+        # The gear ratio is 3:1 so 1080 is one full rotation
         self.mot_rotate.reset()
         time.sleep(0.05)
         self.mot_rotate.rotate_position(1080, 200, 0, 0, 'on', stop_mode='hold')
@@ -312,22 +240,31 @@ class Rubiks(Robot):
         while math.fabs(self.mot_rotate.get_speed()) > 2:
             current_position = self.mot_rotate.get_position()
 
+            # 135 is 1/8 of full rotation
             if current_position >= (i * 135) - 5:
-                current_color = self.get_hsl_colors()
-                self.colors.append((Rubiks.scan_order[self.k], current_color))
+                current_color = tuple(self.color_sensor.get_rgb())
+                self.colors[int(Rubiks.scan_order[self.k])] = current_color
                 log.info(
                     "i %d, k %d, current_position %d, current_color %s" %
                     (i, self.k, current_position, current_color))
 
                 i += 1
                 self.k += 1
-                if i % 2 and i < 9:
+
+                if i % 2:
                     self.put_arm_corner(i)
-                elif i < 9:
+                else:
                     self.put_arm_edge(i)
 
+            if not self.mot_rotate.is_running():
+                break
+
+            if i == 9:
+                self.mot_rotate.stop()
+                break
+
         if i < 9:
-            raise Exception('Scan error...i is %d' % i)
+            raise ScanError('i is %d..should be 9' % i)
 
         self.mot_rotate.wait_for_stop()
         self.mot_rotate.stop()
@@ -336,8 +273,8 @@ class Rubiks(Robot):
         self.mot_bras.wait_for_stop()
 
     def scan(self):
-        self.colors = []
-        self.bloc_cube()
+        self.colors = {}
+        #self.bloc_cube()
         self.k = 0
         self.scan_face()
 
@@ -358,21 +295,23 @@ class Rubiks(Robot):
         self.flip()
         self.scan_face()
 
-        self.cluster_colors()
-        print self.cube
-        self.cube = [self.cube[i + 1] for i in range(len(self.cube))]
-        print ''.join(self.cube)
+        log.info("Scanned RGBs\n%s" % pformat(self.colors))
+        rgb_solver = RubiksColorSolver()
+        rgb_solver.enter_scan_data(self.colors)
+        self.cube = rgb_solver.crunch_colors()
+        log.info("Colors by numbers %s" % self.cube)
 
     def move(self, face_down):
         position = self.state.index(face_down)
         actions = {
             0: ["flip", "flip"],
-         1: [],
-         2: ["rotate_cube_2", "flip"],
-         3: ["rotate_cube_1", "flip"],
-         4: ["flip"],
-         5: ["rotate_cube_3", "flip"]
+            1: [],
+            2: ["rotate_cube_2", "flip"],
+            3: ["rotate_cube_1", "flip"],
+            4: ["flip"],
+            5: ["rotate_cube_3", "flip"]
         }.get(position, None)
+
         for a in actions:
             getattr(self, a)()
 
@@ -385,7 +324,8 @@ class Rubiks(Robot):
                 stdout=PIPE).communicate()[0]
             output = output.strip()
             actions = output.split(' ')
-            print actions
+            log.info('Action (twophase.py): %s' % pformat(actions))
+
             for a in reversed(actions):
                 if a != "":
                     face_down = list(a)[0]
@@ -399,18 +339,17 @@ class Rubiks(Robot):
                         self.rotate_cube_blocked_3()
 
         else:
-            output = Popen(['./cubex_ev3', ''.join(self.cube)], stdout=PIPE).communicate()[0]
+            output = Popen(['./cubex_ev3', ''.join(map(str, self.cube))], stdout=PIPE).communicate()[0]
             output = output.strip()
-            log.info('\n' + output)
-
             actions = output.split(', ')
-            log.info('Action:\n%s' % pformat(actions))
+            log.info('Action (cubex_ev3): %s' % pformat(actions))
 
             for a in actions:
                 if a != "":
                     face_down = list(a)[0]
                     rotation_dir = list(a)[1]
                     self.move(face_down)
+
                     if rotation_dir == 'R':
                         self.rotate_cube_blocked_3()
                     else:
@@ -418,7 +357,7 @@ class Rubiks(Robot):
         self.cube_done()
 
     def cube_done(self):
-        self.mot_push.goto_position(5, 30, 0, 300, stop_mode='hold')
+        self.mot_push.goto_position(5, 300, 0, 300, stop_mode='hold')
         self.mot_push.wait_for_stop()
         os.system("beep -f 262 -l 180 -d 20 -r 2 \
             -n -f 392 -l 180 -d 20 -r 2 \
@@ -429,3 +368,43 @@ class Rubiks(Robot):
             -n -f 294 -l 180 -d 20 -r 2 \
             -n -f 262 -l 400")
         self.rotate_cube(1, 8)
+
+    def wait_for_cube_insert(self):
+        rubiks_present = 0
+        rubiks_present_target = 10
+
+        while True:
+            dist = self.infrared_sensor.get_prox()
+            if (dist > 10 and dist < 50):
+                rubiks_present += 1
+                log.info("wait for cube...proximity %d, present for %d/%d" %\
+                         (dist, rubiks_present, rubiks_present_target))
+            else:
+                if rubiks_present:
+                    log.info('wait for cube...cube removed')
+                rubiks_present = 0
+
+            if rubiks_present >= rubiks_present_target:
+                log.info('wait for cube...cube found and stable')
+                break
+
+            time.sleep(0.1)
+
+    def wait_for_cube_removal(self):
+        rubiks_missing = 0
+        rubiks_missing_target = 10
+
+        while True:
+            dist = self.infrared_sensor.get_prox()
+            if dist > 50:
+                rubiks_missing += 1
+                log.info('wait for cube removed...cube out')
+            else:
+                log.info('wait for cube removed...cube still there')
+                rubiks_missing = 0
+
+            if rubiks_missing >= rubiks_missing_target:
+                log.info('wait for cube removed...its removed')
+                break
+
+            time.sleep(0.1)
