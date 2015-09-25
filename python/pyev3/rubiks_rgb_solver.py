@@ -6,8 +6,10 @@ from colormath.color_conversions import convert_color
 from itertools import permutations
 from math import factorial
 from pprint import pformat
+from subprocess import Popen, PIPE
 from time import sleep
 import logging
+import os
 import sys
 
 log = logging.getLogger(__name__)
@@ -649,22 +651,6 @@ class RubiksColorSolver(object):
         self.corners.append(Corner(self, 52, 45, 16))
         self.corners.append(Corner(self, 54, 36, 43))
 
-
-    # dwalton
-    def edge_parity_ok(self, edge_permutation):
-        return True
-
-    def valid_edge_permutations(self):
-        """
-        Return a list of the valid permutations for our unresolved edges
-        """
-        unresolved_edges = [edge for edge in self.edges if edge.valid is False]
-        valid_permutations = []
-        for edge_permutation in permutations(unresolved_edges):
-            if self.edge_parity_ok(edge_permutation):
-                valid_permutations.append(edge_permutation)
-        return valid_permutations
-
     def resolve_needed_edges(self):
         self.needed_edges = sorted(self.needed_edges)
 
@@ -674,11 +660,11 @@ class RubiksColorSolver(object):
         log.info('Needed edges: %s' % ', '.join(output))
 
         score_per_permutation = []
+        unresolved_edges = [edge for edge in self.edges if edge.valid is False]
         permutation_count = factorial(len(self.needed_edges))
-        parity_valid_permutations = self.valid_edge_permutations()
-        log.info("Evaluating %d permutations..only %d are parity valid" % (permutation_count, len(parity_valid_permutations)))
+        log.info("Evaluating %d permutations" % permutation_count)
 
-        for edge_permutation in parity_valid_permutations:
+        for edge_permutation in permutations(unresolved_edges):
             total_distance = 0
 
             for (edge, (colorA, colorB)) in zip(edge_permutation, self.needed_edges):
@@ -699,19 +685,30 @@ class RubiksColorSolver(object):
             edge_best_match.valid = True
         log.info("Total distance: %d" % total_distance)
 
-    def corner_parity_ok(self, corner_permutation):
-        return True
+    def valid_parity(self):
+        """
+        cubex will barf with one of the following errors if you give it an invalid cube
 
-    def valid_corner_permutations(self):
+        511 ERROR: cubelet error - incorrect cubelets - cube mispainted.
+        512 ERROR: parity error - nondescript - cube misassembled.
+        513 ERROR: parity error - center rotation - cube misassembled.
+        514 ERROR: cubelet error - backward centers or corners - cube mispainted.
+        515 ERROR: parity error - edge flipping - cube misassembled.
+        516 ERROR: parity error - edge swapping - cube misassembled.
+        517 ERROR: parity error - corner rotation - cube misassembled.
+        http://www.gtoal.com/src/rubik/solver/readme.txt
+
+        Long term we should add this parity logic to this class but for now
+        just call cubex and see if it found an error.
         """
-        Return a list of the valid permutations for our unresolved corners
-        """
-        unresolved_corners = [corner for corner in self.corners if corner.valid is False]
-        valid_permutations = []
-        for corner_permutation in permutations(unresolved_corners):
-            if self.corner_parity_ok(corner_permutation):
-                valid_permutations.append(corner_permutation)
-        return valid_permutations
+        arg = ''.join(map(str, self.cube_for_cubex()))
+        log.info(arg)
+        output = Popen([self.cubex_file, arg], stdout=PIPE).communicate()[0]
+        output = output.strip()
+        if 'error' in output:
+            return False
+        log.info("Invalid parity:\n\n%s\n" % output)
+        return True
 
     def resolve_needed_corners(self):
         self.needed_corners = sorted(self.needed_corners)
@@ -722,11 +719,11 @@ class RubiksColorSolver(object):
         log.info('Needed corners: %s' % ', '.join(output))
 
         score_per_permutation = []
+        unresolved_corners = [corner for corner in self.corners if corner.valid is False]
         permutation_count = factorial(len(self.needed_corners))
-        parity_valid_permutations = self.valid_corner_permutations()
-        log.info("Evaluating %d permutations..only %d are parity valid" % (permutation_count, len(parity_valid_permutations)))
+        log.info("Evaluating %d permutations" % permutation_count)
 
-        for corner_permutation in parity_valid_permutations:
+        for corner_permutation in permutations(unresolved_corners):
             total_distance = 0
 
             for (corner, (colorA, colorB, colorC)) in zip(corner_permutation, self.needed_corners):
@@ -735,18 +732,26 @@ class RubiksColorSolver(object):
             score_per_permutation.append((total_distance, corner_permutation))
 
         score_per_permutation = sorted(score_per_permutation)
-        best_permutation = score_per_permutation[0][1]
-        #log.info("score per permutation:\n%s" % score_per_permutation)
+        # dwalton 
 
-        total_distance = 0
-        for (corner_best_match, (colorA, colorB, colorC)) in zip(best_permutation, self.needed_corners):
-            distance = corner_best_match.color_distance(colorA, colorB, colorC)
-            total_distance += distance
-            log.info("%s/%s/%s best match is %s with distance %d" % (colorA.name, colorB.name, colorC.name, corner_best_match, distance))
-            corner_best_match.update_colors(colorA, colorB, colorC)
-            corner_best_match.valid = True
-        log.info("Total distance: %d" % total_distance)
+        if os.path.isfile('./utils/cubex_ev3'):
+            self.cubex_file = './utils/cubex_ev3'
+        elif os.path.isfile('../utils/cubex_ev3'):
+            self.cubex_file = '../utils/cubex_ev3'
 
+        for (_, permutation) in score_per_permutation:
+            total_distance = 0
+
+            for (corner_best_match, (colorA, colorB, colorC)) in zip(permutation, self.needed_corners):
+                distance = corner_best_match.color_distance(colorA, colorB, colorC)
+                total_distance += distance
+                log.info("%s/%s/%s best match is %s with distance %d" % (colorA.name, colorB.name, colorC.name, corner_best_match, distance))
+                corner_best_match.update_colors(colorA, colorB, colorC)
+                corner_best_match.valid = True
+            log.info("Total distance: %d" % total_distance)
+
+            if self.valid_parity():
+                break
 
     def sanity_edge_squares(self):
         log.info('Sanity check edge squares')
@@ -840,7 +845,7 @@ if __name__ == '__main__':
                         format='%(asctime)s %(levelname)5s: %(message)s')
     log = logging.getLogger(__name__)
 
-    from testdata import corner_parity1, solved_cube1, color_parity2
+    from testdata import corner_parity1, solved_cube1, color_parity2, color_parity3
     cube = RubiksColorSolver()
     cube.enter_scan_data(color_parity2)
     cube.crunch_colors()
