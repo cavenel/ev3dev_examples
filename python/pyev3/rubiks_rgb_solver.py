@@ -721,6 +721,29 @@ class RubiksColorSolver(object):
         score_per_permutation = []
         unresolved_corners = [corner for corner in self.corners if corner.valid is False]
         permutation_count = factorial(len(self.needed_corners))
+
+        # 6! = 720
+        # 7! = 5040
+        while permutation_count > 720:
+            log.info("Permutation count is %d which is too high...resolve one corner" % permutation_count)
+
+            scores = []
+            for corner in unresolved_corners:
+                for (colorA, colorB, colorC) in self.needed_corners:
+                    distance = corner.color_distance(colorA, colorB, colorC)
+                    scores.append((distance, corner, (colorA, colorB, colorC)))
+
+            scores = sorted(scores)
+            (distance, corner_best_match, (colorA, colorB, colorC)) = scores[0]
+
+            log.info("%s/%s/%s best match is %s with distance %d" % (colorA.name, colorB.name, colorC.name, corner_best_match, distance))
+            corner_best_match.update_colors(colorA, colorB, colorC)
+            corner_best_match.valid = True
+            self.needed_corners.remove((colorA, colorB, colorC))
+
+            unresolved_corners = [corner for corner in self.corners if corner.valid is False]
+            permutation_count = factorial(len(self.needed_corners))
+
         log.info("Evaluating %d permutations" % permutation_count)
 
         for corner_permutation in permutations(unresolved_corners):
@@ -732,7 +755,6 @@ class RubiksColorSolver(object):
             score_per_permutation.append((total_distance, corner_permutation))
 
         score_per_permutation = sorted(score_per_permutation)
-        # dwalton 
 
         if os.path.isfile('./utils/cubex_ev3'):
             self.cubex_file = './utils/cubex_ev3'
