@@ -70,26 +70,26 @@ class Edge(object):
             return True
         return False
 
-    def color_distance(self, colorA, colorB, debug=False):
-        """
-        Given two colors, return our total color distance
-        """
+    def _get_color_distances(self, colorA, colorB):
         distanceAB = (get_color_distance(self.square1.rawcolor, colorA) +
                       get_color_distance(self.square2.rawcolor, colorB))
 
         distanceBA = (get_color_distance(self.square1.rawcolor, colorB) +
                       get_color_distance(self.square2.rawcolor, colorA))
 
-        if debug:
-            log.info('colorA %s, colorB %s, sq1 %s, sq2 %s, distanceAB %d, distanceBA %d' % (colorA, colorB, self.square1.rawcolor, self.square2.rawcolor, distanceAB, distanceBA))
+        return (distanceAB, distanceBA)
 
-        return min(distanceAB, distanceBA)
+    def color_distance(self, colorA, colorB):
+        """
+        Given two colors, return our total color distance
+        """
+        # log.info('colorA %s, colorB %s, sq1 %s, sq2 %s, distanceAB %d, distanceBA %d' % (colorA, colorB, self.square1.rawcolor, self.square2.rawcolor, distanceAB, distanceBA))
+        return min(self._get_color_distances(colorA, colorB))
 
     def update_colors(self, colorA, colorB):
-        distanceA = get_color_distance(self.square1.rawcolor, colorA)
-        distanceB = get_color_distance(self.square1.rawcolor, colorB)
+        (distanceAB, distanceBA) = self._get_color_distances(colorA, colorB)
 
-        if distanceA < distanceB:
+        if distanceAB < distanceBA:
             self.square1.color = colorA
             self.square2.color = colorB
         else:
@@ -132,31 +132,45 @@ class Corner(object):
             return True
         return False
 
+    def _get_color_distances(self, colorA, colorB, colorC):
+        distanceABC = (get_color_distance(self.square1.rawcolor, colorA) +
+                       get_color_distance(self.square2.rawcolor, colorB) +
+                       get_color_distance(self.square3.rawcolor, colorC))
+
+        distanceCAB = (get_color_distance(self.square1.rawcolor, colorC) +
+                       get_color_distance(self.square2.rawcolor, colorA) +
+                       get_color_distance(self.square3.rawcolor, colorB))
+
+        distanceBCA = (get_color_distance(self.square1.rawcolor, colorB) +
+                       get_color_distance(self.square2.rawcolor, colorC) +
+                       get_color_distance(self.square3.rawcolor, colorA))
+        return (distanceABC, distanceCAB, distanceBCA)
+
     def color_distance(self, colorA, colorB, colorC):
         """
         Given three colors, return our total color distance
         """
-        return (get_color_distance(self.square1.rawcolor, colorA) +
-                get_color_distance(self.square2.rawcolor, colorB) +
-                get_color_distance(self.square3.rawcolor, colorC))
+        return min(self._get_color_distances(colorA, colorB, colorC))
 
     def update_colors(self, colorA, colorB, colorC):
-        self.square1.color = colorA
-        self.square2.color = colorB
-        self.square3.color = colorC
+        (distanceABC, distanceCAB, distanceBCA) = self._get_color_distances(colorA, colorB, colorC)
+        min_distance = min(distanceABC, distanceCAB, distanceBCA)
+        #log.info("update_colors min %d, distanceABC %d, distanceCAB %d, distanceBCA %d" % distanceABC, distanceCAB, distanceBCA)
 
-        distanceBC = (get_color_distance(self.square2.rawcolor, colorB) +
-                      get_color_distance(self.square3.rawcolor, colorC))
-
-        distanceCB = (get_color_distance(self.square2.rawcolor, colorC) +
-                      get_color_distance(self.square3.rawcolor, colorB))
-
-        if distanceBC < distanceCB:
+        if min_distance == distanceABC:
+            self.square1.color = colorA
             self.square2.color = colorB
             self.square3.color = colorC
-        else:
-            self.square2.color = colorC
+
+        elif min_distance == distanceCAB:
+            self.square1.color = colorC
+            self.square2.color = colorA
             self.square3.color = colorB
+
+        elif min_distance == distanceBCA:
+            self.square1.color = colorB
+            self.square2.color = colorC
+            self.square3.color = colorA
 
     def validate(self):
 
@@ -826,67 +840,7 @@ if __name__ == '__main__':
                         format='%(asctime)s %(levelname)5s: %(message)s')
     log = logging.getLogger(__name__)
 
+    from testdata import corner_parity1, solved_cube1
     cube = RubiksColorSolver()
-
-    # Each of these numbers represents a position on the cube
-    # http://ruwix.com/the-rubiks-cube/mathematics-of-the-rubiks-cube-permutation-group/
-    #
-    # These are (position, (red, green, blue)) tuples. The following data is
-    # from the scan of a solved cube. It is handy to test with if you are running
-    # this program from the command line.
-    cube.enter_scan_data({
- 5 : (144, 47, 32),
- 9 : (119, 45, 12),
- 6 : (129, 50, 25),
- 3 : (116, 43, 26),
- 2 : (125, 51, 25),
- 1 : (109, 48, 24),
- 4 : (122, 49, 23),
- 7 : (122, 46, 24),
- 8 : (122, 50, 26),
- 23 : (32, 70, 95),
- 27 : (25, 67, 64),
- 24 : (25, 77, 83),
- 21 : (26, 74, 72),
- 20 : (26, 75, 82),
- 19 : (22, 79, 79),
- 22 : (13, 49, 47),
- 25 : (25, 68, 81),
- 26 : (25, 72, 79),
- 50 : (187, 73, 37),
- 54 : (124, 71, 25),
- 51 : (159, 73, 26),
- 48 : (146, 76, 26),
- 47 : (158, 77, 26),
- 46 : (158, 77, 23),
- 49 : (75, 46, 9),
- 52 : (145, 79, 32),
- 53 : (149, 73, 27),
- 14 : (166, 170, 46),
- 10 : (115, 149, 30),
- 13 : (146, 176, 36),
- 16 : (149, 182, 40),
- 17 : (128, 149, 36),
- 18 : (138, 178, 33),
- 15 : (106, 137, 33),
- 12 : (114, 151, 33),
- 11 : (138, 170, 36),
- 41 : (33, 138, 63),
- 43 : (20, 137, 48),
- 44 : (27, 121, 53),
- 45 : (25, 136, 50),
- 42 : (27, 133, 54),
- 39 : (24, 105, 41),
- 38 : (25, 136, 52),
- 37 : (30, 136, 51),
- 40 : (23, 129, 52),
- 32 : (237, 382, 264), # There was a sticker in the middle of the white one which threw things off so I copied the #s from #34
- 34 : (237, 382, 264),
- 35 : (243, 380, 274),
- 36 : (237, 372, 264),
- 33 : (240, 369, 273),
- 30 : (227, 363, 253),
- 29 : (231, 356, 267),
- 28 : (220, 361, 245),
- 31 : (236, 359, 267)})
+    cube.enter_scan_data(solved_cube1)
     cube.crunch_colors()
