@@ -6,6 +6,5 @@ Examples of program for ev3dev
 Installation
 ===============
 For python/rubiks_test.py:
-- apt-get install python-pip python-dev python-numpy
+- apt-get install python-pip python-dev python-numpy cython
 - pip install colormath
-- pip install cython
