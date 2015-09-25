@@ -15,7 +15,7 @@ class Rubiks(Robot):
         41, 43, 44, 45, 42, 39, 38, 37, 40,
         32, 34, 35, 36, 33, 30, 29, 28, 31]
 
-    rotate_speed = 400
+    rotate_speed = 300
     corner_to_edge_diff = 60
 
     def __init__(self):
@@ -49,22 +49,18 @@ class Rubiks(Robot):
         self.state = [self.state[t] for t in transformation]
 
     def rotate_cube(self, direction, nb, wait=1):
+
         if (self.mot_push.get_position() > 15):
-            self.mot_push.goto_position(position=5, speed=35)
-            self.mot_push.wait_for_stop()
+            self.push_arm_away()
 
         pre_rotation = 135 * round(self.mot_rotate.get_position() / 135.0)
         self.mot_rotate.goto_position(
-            pre_rotation +
-            270 *
-            direction *
-            nb,
+            pre_rotation + 270 * direction * nb,
             Rubiks.rotate_speed,
             0,
             300,
-            'on',
-            stop_mode='hold',
-            wait=True)
+            stop_mode='hold')
+
         # time.sleep(nb * 60 * 0.7 / Rubiks.rotate_speed)
         self.mot_rotate.wait_for_stop()
         self.mot_rotate.stop()
@@ -87,27 +83,35 @@ class Rubiks(Robot):
         self.rotate_cube(-1, 1)
 
     def rotate_cube_blocked(self, direction, nb):
+
+        # Move the arm down to hold the block in place
         self.mot_push.goto_position(120, 300, 0, 300, stop_mode='hold')
         self.mot_push.wait_for_stop()
-        pre_rotation = 135 * round(self.mot_rotate.get_position() / 135.0)
 
+        OVERROTATE = 40
+        pre_rotation = 135 * round(self.mot_rotate.get_position() / 135.0)
+        destination = pre_rotation + (270 * direction * nb) + (OVERROTATE * direction)
+        log.info("dest %d, pre_rotation %d, direction %d, nb %d" % (destination, pre_rotation, direction, nb))
+
+        # dwalton - here
         self.mot_rotate.goto_position(
-            pre_rotation + 270 * direction * nb + 65 * direction,
+            destination,
             Rubiks.rotate_speed,
             0,
             300,
             stop_mode='hold')
+        self.mot_rotate.wait_for_stop()
+        self.mot_rotate.stop()
 
-        time.sleep(nb * 60 * 0.7 / Rubiks.rotate_speed)
+        #time.sleep(nb * 60 * 0.7 / Rubiks.rotate_speed)
 
         self.mot_rotate.goto_position(
-            pre_rotation + 270 * direction * nb,
-            Rubiks.rotate_speed,
+            pre_rotation + (270 * direction * nb),
+            Rubiks.rotate_speed/2,
             0,
             0,
             stop_mode='hold')
-
-        time.sleep(0.3)
+        self.mot_rotate.wait_for_stop()
         self.mot_rotate.stop()
 
     def rotate_cube_blocked_1(self):
@@ -119,7 +123,19 @@ class Rubiks(Robot):
     def rotate_cube_blocked_3(self):
         self.rotate_cube_blocked(-1, 1)
 
+    def push_arm_away(self):
+        """
+        Move the flipper arm out of the way
+        """
+        self.mot_push.goto_position(0, 300, 0, 300)
+        self.mot_push.wait_for_stop()
+        self.mot_push.stop()
+
     def flip(self):
+
+        if (self.mot_push.get_position() > 15):
+            self.mot_push.goto_position(95, 200, 0, 300)
+            self.mot_push.wait_for_stop()
 
         # Grab the cube and pull back
         self.mot_push.goto_position(180, 400, 200, 0)
@@ -130,11 +146,6 @@ class Rubiks(Robot):
         # drop it back down in the turntable
         self.mot_push.goto_position(95, 300, 0, 300)
         self.mot_push.wait_for_stop()
-
-        # Move the flipper arm out of the way
-        self.mot_push.goto_position(0, 300, 0, 300)
-        self.mot_push.wait_for_stop()
-        self.mot_push.stop()
 
         transformation = [2, 4, 1, 3, 0, 5]
         self.apply_transformation(transformation)
@@ -215,6 +226,10 @@ class Rubiks(Robot):
         self.mot_bras.goto_position(0, 500)
 
     def scan_face(self):
+
+        if (self.mot_push.get_position() > 15):
+            self.push_arm_away()
+
         log.info('scanning face')
         self.put_arm_middle()
         self.mot_bras.wait_for_stop()
@@ -310,6 +325,20 @@ class Rubiks(Robot):
         for a in actions:
             getattr(self, a)()
 
+    def run_cubex_actions(self, actions):
+        for a in actions:
+            if a != "":
+                face_down = list(a)[0]
+                rotation_dir = list(a)[1]
+                self.move(face_down)
+
+                if rotation_dir == 'R':
+                    self.rotate_cube_blocked_3()
+                else:
+                    self.rotate_cube_blocked_1()
+            else:
+                log.info('blank action')
+
     def resolve(self, computer):
         if computer:
             output = Popen(
@@ -338,22 +367,13 @@ class Rubiks(Robot):
             output = output.strip()
             actions = output.split(', ')
             log.info('Action (cubex_ev3): %s' % pformat(actions))
+            self.run_cubex_actions(actions)
 
-            for a in actions:
-                if a != "":
-                    face_down = list(a)[0]
-                    rotation_dir = list(a)[1]
-                    self.move(face_down)
-
-                    if rotation_dir == 'R':
-                        self.rotate_cube_blocked_3()
-                    else:
-                        self.rotate_cube_blocked_1()
         self.cube_done()
 
     def cube_done(self):
-        self.mot_push.goto_position(5, 300, 0, 300, stop_mode='hold')
-        self.mot_push.wait_for_stop()
+        self.push_arm_away()
+
         os.system("beep -f 262 -l 180 -d 20 -r 2 \
             -n -f 392 -l 180 -d 20 -r 2 \
             -n -f 440 -l 180 -d 20 -r 2 \

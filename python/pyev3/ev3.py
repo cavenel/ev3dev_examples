@@ -362,7 +362,7 @@ class Motor(Communicate):
         return True if 'running' in self.get_state() else False
 
     def stop(self, stop_mode='coast'):
-        log.info("%s stop to %s" % (self, stop_mode))
+        #log.info("%s stop to %s" % (self, stop_mode))
         self.set_stop_mode(stop_mode)
         self.set_run_mode('stop')
 
