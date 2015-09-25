@@ -24,7 +24,7 @@ def get_color_distance(c1, c2):
         return dcache[(c2, c1)]
 
     # delta_e_cie2000 is better but is 3x slower on an EV3...1976 is good enough
-    # distance = delta_e_cie2000(c1, c2)
+    #distance = delta_e_cie2000(c1, c2)
     distance = delta_e_cie1976(c1, c2)
     dcache[(c1, c2)] = distance
     return distance
@@ -636,6 +636,21 @@ class RubiksColorSolver(object):
         self.corners.append(Corner(self, 54, 36, 43))
 
 
+    # dwalton
+    def edge_parity_ok(self, edge_permutation):
+        return True
+
+    def valid_edge_permutations(self):
+        """
+        Return a list of the valid permutations for our unresolved edges
+        """
+        unresolved_edges = [edge for edge in self.edges if edge.valid is False]
+        valid_permutations = []
+        for edge_permutation in permutations(unresolved_edges):
+            if self.edge_parity_ok(edge_permutation):
+                valid_permutations.append(edge_permutation)
+        return valid_permutations
+
     def resolve_needed_edges(self):
         self.needed_edges = sorted(self.needed_edges)
 
@@ -644,15 +659,12 @@ class RubiksColorSolver(object):
             output.append("%s/%s" % (colorA.name, colorB.name))
         log.info('Needed edges: %s' % ', '.join(output))
 
-        invalid_edges = [edge for edge in self.edges if edge.valid is False]
-
         score_per_permutation = []
         permutation_count = factorial(len(self.needed_edges))
-        log.info("Evaluating %d permutations" % permutation_count)
-        # TODO - need a safety net limit on the number of permutations we can look at
-        # TODO - need to throw away permutations that would cause parity errors
+        parity_valid_permutations = self.valid_edge_permutations()
+        log.info("Evaluating %d permutations..only %d are parity valid" % (permutation_count, len(parity_valid_permutations)))
 
-        for edge_permutation in permutations(invalid_edges):
+        for edge_permutation in parity_valid_permutations:
             total_distance = 0
 
             for (edge, (colorA, colorB)) in zip(edge_permutation, self.needed_edges):
@@ -673,6 +685,19 @@ class RubiksColorSolver(object):
             edge_best_match.valid = True
         log.info("Total distance: %d" % total_distance)
 
+    def corner_parity_ok(self, corner_permutation):
+        return True
+
+    def valid_corner_permutations(self):
+        """
+        Return a list of the valid permutations for our unresolved corners
+        """
+        unresolved_corners = [corner for corner in self.corners if corner.valid is False]
+        valid_permutations = []
+        for corner_permutation in permutations(unresolved_corners):
+            if self.corner_parity_ok(corner_permutation):
+                valid_permutations.append(corner_permutation)
+        return valid_permutations
 
     def resolve_needed_corners(self):
         self.needed_corners = sorted(self.needed_corners)
@@ -682,13 +707,12 @@ class RubiksColorSolver(object):
             output.append("%s/%s/%s" % (colorA.name, colorB.name, colorC.name))
         log.info('Needed corners: %s' % ', '.join(output))
 
-        invalid_corners = [corner for corner in self.corners if corner.valid is False]
-
         score_per_permutation = []
         permutation_count = factorial(len(self.needed_corners))
-        log.info("Evaluating %d permutations" % permutation_count)
+        parity_valid_permutations = self.valid_corner_permutations()
+        log.info("Evaluating %d permutations..only %d are parity valid" % (permutation_count, len(parity_valid_permutations)))
 
-        for corner_permutation in permutations(invalid_corners):
+        for corner_permutation in parity_valid_permutations:
             total_distance = 0
 
             for (corner, (colorA, colorB, colorC)) in zip(corner_permutation, self.needed_corners):

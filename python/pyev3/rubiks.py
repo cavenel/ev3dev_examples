@@ -87,30 +87,26 @@ class Rubiks(Robot):
         self.rotate_cube(-1, 1)
 
     def rotate_cube_blocked(self, direction, nb):
-        self.mot_push.goto_position(120, 400, 0, 300, stop_mode='hold')
+        self.mot_push.goto_position(120, 300, 0, 300, stop_mode='hold')
         self.mot_push.wait_for_stop()
         pre_rotation = 135 * round(self.mot_rotate.get_position() / 135.0)
+
         self.mot_rotate.goto_position(
-            pre_rotation +
-            270 *
-            direction *
-            nb +
-            65 *
-            direction,
+            pre_rotation + 270 * direction * nb + 65 * direction,
             Rubiks.rotate_speed,
             0,
             300,
             stop_mode='hold')
+
         time.sleep(nb * 60 * 0.7 / Rubiks.rotate_speed)
+
         self.mot_rotate.goto_position(
-            pre_rotation +
-            270 *
-            direction *
-            nb,
+            pre_rotation + 270 * direction * nb,
             Rubiks.rotate_speed,
             0,
             0,
             stop_mode='hold')
+
         time.sleep(0.3)
         self.mot_rotate.stop()
 
@@ -125,9 +121,8 @@ class Rubiks(Robot):
 
     def flip(self):
 
-        # dwalton
         # Grab the cube and pull back
-        self.mot_push.goto_position(180, 450, 200, 0)
+        self.mot_push.goto_position(180, 400, 200, 0)
         self.mot_push.wait_for_stop()
         time.sleep(0.2)
 
