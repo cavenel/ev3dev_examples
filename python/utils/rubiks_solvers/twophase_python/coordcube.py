@@ -1,6 +1,9 @@
 import logging
 import os.path
 import cPickle
+import pyximport
+pyximport.install()
+from get_pruning import getPruning
 
 from cubiecube import CubieCube, moveCube, getURtoDF
 
@@ -15,16 +18,6 @@ def setPruning(table, index, value):
     else:
         table[index / 2] &= 0x0f | (value << 4)
     # table[index] = value & 0xf
-
-def getPruning(table, index):
-    """Extract pruning value"""
-
-    if ((index & 1) == 0):
-        res = table[index / 2] & 0x0f
-    else:
-        res = (table[index / 2] & 0xf0) >> 4
-    return res
-    # return table[index] & 0xf
 
 def load_cachetable(name):
     obj = None
