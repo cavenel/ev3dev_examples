@@ -332,6 +332,9 @@ class Rubiks(Robot):
     def run_cubex_actions(self, actions):
         total_actions = len(actions)
         for (i, a) in enumerate(actions):
+            if not a:
+                continue
+
             (face_down, rotation_dir) = list(a)
             log.info("Move %d/%d: %s%s" % (i, total_actions, face_down, rotation_dir))
             self.move(face_down)
@@ -366,8 +369,7 @@ class Rubiks(Robot):
 
         else:
             output = Popen(['./utils/cubex_ev3', ''.join(map(str, self.cube))], stdout=PIPE).communicate()[0]
-            output = output.strip()
-            actions = output.split(', ')
+            actions = output.strip().replace(' ', '').split(',')
             log.info('Action (cubex_ev3): %s' % pformat(actions))
             self.run_cubex_actions(actions)
 

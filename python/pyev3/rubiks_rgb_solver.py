@@ -720,8 +720,8 @@ class RubiksColorSolver(object):
         output = Popen([self.cubex_file, arg], stdout=PIPE).communicate()[0]
         output = output.strip()
         if 'error' in output:
+            log.info("Invalid parity:\n\n%s\n" % output)
             return False
-        log.info("Invalid parity:\n\n%s\n" % output)
         return True
 
     def resolve_needed_corners(self):
