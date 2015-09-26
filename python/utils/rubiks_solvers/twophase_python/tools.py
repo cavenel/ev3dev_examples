@@ -1,9 +1,12 @@
-import random
+#!/usr/bin/env python
 
+import argparse
+import random
 from facecube import FaceCube
 from cubiecube import CubieCube
 from coordcube import CoordCube
 from color import colors
+from sys import argv
 
 def verify(s):
     """
@@ -52,3 +55,14 @@ def randomCube():
             break
     fc = cc.toFaceCube()
     return fc.to_String()
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--verify', help='Facelet string', default=None)
+    parser.add_argument('--random', action='store_true', help='Return random cube', default=None)
+    args = parser.parse_args()
+
+    if args.verify:
+        print verify(args.verify)
+    else:
+        print randomCube()
