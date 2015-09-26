@@ -682,6 +682,29 @@ class RubiksColorSolver(object):
         score_per_permutation = []
         unresolved_edges = [edge for edge in self.edges if edge.valid is False]
         permutation_count = factorial(len(self.needed_edges))
+
+        # 6! = 720
+        # 7! = 5040
+        while permutation_count > 720:
+            log.info("Permutation count is %d which is too high...resolve one edge" % permutation_count)
+
+            scores = []
+            for edge in unresolved_edges:
+                for (colorA, colorB) in self.needed_edges:
+                    distance = edge.color_distance(colorA, colorB)
+                    scores.append((distance, edge, (colorA, colorB)))
+
+            scores = sorted(scores)
+            (distance, edge_best_match, (colorA, colorB)) = scores[0]
+
+            log.info("%s/%s best match is %s with distance %d" % (colorA.name, colorB.name, edge_best_match, distance))
+            edge_best_match.update_colors(colorA, colorB)
+            edge_best_match.valid = True
+            self.needed_edges.remove((colorA, colorB))
+
+            unresolved_edges= [edge for edge in self.edges if edge.valid is False]
+            permutation_count = factorial(len(self.needed_edges))
+
         log.info("Evaluating %d permutations" % permutation_count)
 
         for edge_permutation in permutations(unresolved_edges):
@@ -887,9 +910,9 @@ if __name__ == '__main__':
                         format='%(asctime)s %(levelname)5s: %(message)s')
     log = logging.getLogger(__name__)
 
-    from testdata import yellow_vs_green1
+    from testdata import edge1
     cube = RubiksColorSolver()
-    cube.enter_scan_data(yellow_vs_green1)
+    cube.enter_scan_data(edge1)
     (kociemba, cubex) = cube.crunch_colors()
     print "kociemba: %s" % ''.join(map(str, kociemba))
     print "cubex: %s" % ''.join(map(str, cubex))
