@@ -2,6 +2,7 @@
 from ev3 import *
 from rubiks_rgb_solver import RubiksColorSolver
 from pprint import pformat
+import signal
 
 class ScanError(Exception):
     pass
@@ -19,6 +20,7 @@ class Rubiks(Robot):
     corner_to_edge_diff = 60
 
     def __init__(self):
+        self.shutdown_flag = False
         self.mot_push = Motor('A', 'flipper')
         self.mot_bras = Motor('C', 'color arm')
         self.mot_rotate = Motor('B', 'turntable')
@@ -27,23 +29,45 @@ class Rubiks(Robot):
         self.cube = {}
         self.init_motors()
         self.state = ['U', 'D', 'F', 'L', 'B', 'R']
+        signal.signal(signal.SIGTERM, self.signal_term_handler)
+        signal.signal(signal.SIGINT, self.signal_int_handler)
 
     def init_motors(self):
         log.info("Initialize %s" % self.mot_push)
         self.mot_push.rotate_forever(-70)
         self.mot_push.wait_for_stop()
         self.mot_push.stop()
-        self.mot_push.reset_position()
+        self.mot_push.reset()
 
         log.info("Initialize %s" % self.mot_bras)
         self.mot_bras.rotate_forever(500)
         self.mot_bras.wait_for_stop()
         self.mot_bras.stop()
-        self.mot_bras.reset_position()
+        self.mot_bras.reset()
 
         log.info("Initialize %s" % self.mot_rotate)
         self.mot_rotate.stop()
-        self.mot_rotate.reset_position()
+        self.mot_rotate.reset()
+
+    def shutdown(self):
+        log.info('Shutting down')
+        self.shutdown_flag = True
+        self.mot_push.wait_for_stop()
+        self.mot_push.stop()
+
+        self.mot_bras.wait_for_stop()
+        self.mot_bras.stop()
+
+        self.mot_rotate.wait_for_stop()
+        self.mot_rotate.stop()
+
+    def signal_term_handler(self, signal, frame):
+        log.error('Caught SIGTERM')
+        self.shutdown()
+
+    def signal_int_handler(self, signal, frame):
+        log.error('Caught SIGINT')
+        self.shutdown()
 
     def apply_transformation(self, transformation):
         self.state = [self.state[t] for t in transformation]
@@ -224,6 +248,9 @@ class Rubiks(Robot):
 
     def scan_face(self):
 
+        if self.shutdown_flag:
+            return
+
         if (self.mot_push.get_position() > 15):
             self.push_arm_away()
 
@@ -266,9 +293,12 @@ class Rubiks(Robot):
             if not self.mot_rotate.is_running():
                 break
 
-            if i == 9:
+            if i == 9 or self.shutdown_flag:
                 self.mot_rotate.stop()
                 break
+
+        if self.shutdown_flag:
+            return
 
         if i < 9:
             raise ScanError('i is %d..should be 9' % i)
@@ -327,11 +357,19 @@ class Rubiks(Robot):
         }.get(position, None)
 
         for a in actions:
+
+            if self.shutdown_flag:
+                break
+
             getattr(self, a)()
 
     def run_cubex_actions(self, actions):
         total_actions = len(actions)
         for (i, a) in enumerate(actions):
+
+            if self.shutdown_flag:
+                break
+
             if not a:
                 continue
 
@@ -348,24 +386,32 @@ class Rubiks(Robot):
         if computer:
             output = Popen(
                 ['ssh',
-                 'login@192.168.3.235',
-                 'twophase.py ' + ''.join(self.cube)],
+                 'dwalton76@192.168.0.13',
+                 '/home/dwalton76/lego-rubiks-cube/python/utils/rubiks_solvers/twophase_C_x86/twophase.py ' + ''.join(map(str, self.cube))],
                 stdout=PIPE).communicate()[0]
-            output = output.strip()
+            output = output.strip().strip()
             actions = output.split(' ')
             log.info('Action (twophase.py): %s' % pformat(actions))
 
-            for a in reversed(actions):
-                if a != "":
-                    face_down = list(a)[0]
-                    rotation_dir = list(a)[1]
-                    self.move(face_down)
-                    if rotation_dir == '1':
-                        self.rotate_cube_blocked_1()
-                    elif rotation_dir == '2':
-                        self.rotate_cube_blocked_2()
-                    elif rotation_dir == '3':
-                        self.rotate_cube_blocked_3()
+            total_actions = len(actions)
+            for (i, a) in enumerate(actions):
+
+                if self.shutdown_flag:
+                    break
+
+                #log.info("a: %s" % a)
+                face_down = list(a)[0]
+                rotation_dir = list(a)[1]
+
+                log.info("Move %d/%d: %s%s" % (i, total_actions, face_down, rotation_dir))
+                self.move(face_down)
+
+                if rotation_dir == '1':
+                    self.rotate_cube_blocked_1()
+                elif rotation_dir == '2':
+                    self.rotate_cube_blocked_2()
+                elif rotation_dir == '3':
+                    self.rotate_cube_blocked_3()
 
         else:
             output = Popen(['./utils/rubiks_solvers/cubex_C_ARM/cubex_ev3', ''.join(map(str, self.cube))], stdout=PIPE).communicate()[0]
@@ -377,6 +423,9 @@ class Rubiks(Robot):
 
     def cube_done(self):
         self.push_arm_away()
+
+        if self.shutdown_flag:
+            return
 
         os.system("beep -f 262 -l 180 -d 20 -r 2 \
             -n -f 392 -l 180 -d 20 -r 2 \
@@ -393,6 +442,10 @@ class Rubiks(Robot):
         rubiks_present_target = 10
 
         while True:
+
+            if self.shutdown_flag:
+                break
+
             dist = self.infrared_sensor.get_prox()
             if (dist > 10 and dist < 50):
                 rubiks_present += 1
@@ -415,6 +468,10 @@ class Rubiks(Robot):
 
         i = 0
         while True:
+
+            if self.shutdown_flag:
+                break
+
             dist = self.infrared_sensor.get_prox()
             if dist > 50:
                 rubiks_missing += 1

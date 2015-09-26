@@ -17,8 +17,15 @@ while True:
     rub.wait_for_cube_insert()
     rub.scan()
 
+    if rub.shutdown_flag:
+        break
+
     last_time = current_time()
-    rub.resolve(computer=0)
+    rub.resolve(False)
+
+    if rub.shutdown_flag:
+        break
+
     total = int(current_time() - last_time)
     rub.talk(str(total) + " seconds. Ha ha ha.")
 
