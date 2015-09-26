@@ -1,5 +1,6 @@
 from ev3 import *
 
+
 class Everstorm(Robot):
 
     def __init__(self):
@@ -8,11 +9,11 @@ class Everstorm(Robot):
         self.mot_left = Motor('D')
         self.mot_front = Motor('A')
 
-    def turn_forever(self, speed, regulate = 0):
+    def turn_forever(self, speed, regulate=0):
         self.mot_left.rotate_forever(speed)
         self.mot_right.rotate_forever(-speed)
 
-    def straight_forever(self, speed, regulate = 0):
+    def straight_forever(self, speed, regulate=0):
         self.mot_left.rotate_forever(speed, regulate=0, brake=1, hold=0)
         self.mot_right.rotate_forever(speed, regulate=0, brake=1, hold=0)
 
@@ -53,7 +54,7 @@ class Everstorm(Robot):
         self.mot_right.stop()
         self.mot_front.stop()
 
-    def walk(self, speed, steps, direction = 1):
+    def walk(self, speed, steps, direction=1):
         step_position = 350 * direction
         sleep_step = 50.0 / speed
         self.mot_left.rotate_position(step_position / 2.0, speed, up=0, down=200)
