@@ -2,6 +2,7 @@
 from ev3 import *
 from rubiks_rgb_solver import RubiksColorSolver
 from pprint import pformat
+from subprocess import check_output
 import signal
 
 class ScanError(Exception):
@@ -154,9 +155,17 @@ class Rubiks(Robot):
 
     def flip(self):
 
+        if self.shutdown_flag:
+            return
+
         if (self.mot_push.get_position() > 15):
-            self.mot_push.goto_position(95, 200, 0, 300)
+            self.mot_push.goto_position(95, 300, 0, 300)
             self.mot_push.wait_for_stop()
+
+        # Push it forward so the cube is always in the same position
+        # when we start the flip
+        self.mot_push.goto_position(95, 300, 0, 300)
+        self.mot_push.wait_for_stop()
 
         # Grab the cube and pull back
         self.mot_push.goto_position(180, 400, 200, 0)
@@ -233,7 +242,7 @@ class Rubiks(Robot):
         else:
             diff = 0
         diff = 0
-        self.mot_bras.goto_position(-590 - diff, 500, stop_mode='hold')
+        self.mot_bras.goto_position(-580 - diff, 500, stop_mode='hold')
 
     def put_arm_edge(self, i):
         #if i >= 2 and i <= 4:
@@ -339,10 +348,13 @@ class Rubiks(Robot):
         self.flip()
         self.scan_face()
 
+        if self.shutdown_flag:
+            return
+
         log.info("Scanned RGBs\n%s" % pformat(self.colors))
         rgb_solver = RubiksColorSolver()
         rgb_solver.enter_scan_data(self.colors)
-        self.cube = rgb_solver.crunch_colors()
+        (self.cube_kociemba, self.cube_cubex) = rgb_solver.crunch_colors()
         log.info("Colors by numbers %s" % self.cube)
 
     def move(self, face_down):
@@ -363,8 +375,38 @@ class Rubiks(Robot):
 
             getattr(self, a)()
 
-    def run_cubex_actions(self, actions):
+    def run_kociemba_actions(self, actions):
+        log.info('Action (kociemba): %s' % ' '.join(actions))
         total_actions = len(actions)
+        for (i, a) in enumerate(actions):
+
+            if self.shutdown_flag:
+                break
+
+            if a.endswith("'"):
+                face_down = list(a)[0]
+                rotation_dir = 1
+            elif a.endswith("2"):
+                face_down = list(a)[0]
+                rotation_dir = 2
+            else:
+                face_down = a
+                rotation_dir = 3
+
+            log.info("Move %d/%d: %s%s (a %s)" % (i, total_actions, face_down, rotation_dir, pformat(a)))
+            self.move(face_down)
+
+            if rotation_dir == 1:
+                self.rotate_cube_blocked_1()
+            elif rotation_dir == 2:
+                self.rotate_cube_blocked_2()
+            elif rotation_dir == 3:
+                self.rotate_cube_blocked_3()
+
+    def run_cubex_actions(self, actions):
+        log.info('Action (cubex_ev3): %s' % ' '.join(actions))
+        total_actions = len(actions)
+
         for (i, a) in enumerate(actions):
 
             if self.shutdown_flag:
@@ -387,36 +429,20 @@ class Rubiks(Robot):
             output = Popen(
                 ['ssh',
                  'dwalton76@192.168.0.13',
-                 '/home/dwalton76/lego-rubiks-cube/python/utils/rubiks_solvers/twophase_C_x86/twophase.py ' + ''.join(map(str, self.cube))],
+                 '/home/dwalton76/lego-rubiks-cube/python/utils/rubiks_solvers/twophase_python/solve.py ' + ''.join(map(str, self.cube_kociemba))],
                 stdout=PIPE).communicate()[0]
             output = output.strip().strip()
             actions = output.split(' ')
-            log.info('Action (twophase.py): %s' % pformat(actions))
-
-            total_actions = len(actions)
-            for (i, a) in enumerate(actions):
-
-                if self.shutdown_flag:
-                    break
-
-                #log.info("a: %s" % a)
-                face_down = list(a)[0]
-                rotation_dir = list(a)[1]
-
-                log.info("Move %d/%d: %s%s" % (i, total_actions, face_down, rotation_dir))
-                self.move(face_down)
-
-                if rotation_dir == '1':
-                    self.rotate_cube_blocked_1()
-                elif rotation_dir == '2':
-                    self.rotate_cube_blocked_2()
-                elif rotation_dir == '3':
-                    self.rotate_cube_blocked_3()
+            self.run_kociemba_actions(actions)
 
         else:
-            output = Popen(['./utils/rubiks_solvers/cubex_C_ARM/cubex_ev3', ''.join(map(str, self.cube))], stdout=PIPE).communicate()[0]
+            if os.path.isfile('../utils/rubiks_solvers/cubex_C_ARM/cubex_ev3'):
+                cubex_file = '../utils/rubiks_solvers/cubex_C_ARM/cubex_ev3'
+            else:
+                cubex_file = check_output('find . -name cubex_ev3', shell=True).splitlines()[0]
+
+            output = Popen([cubex_file, ''.join(map(str, self.cube_cubex))], stdout=PIPE).communicate()[0]
             actions = output.strip().replace(' ', '').split(',')
-            log.info('Action (cubex_ev3): %s' % pformat(actions))
             self.run_cubex_actions(actions)
 
         self.cube_done()

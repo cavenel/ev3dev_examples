@@ -6,7 +6,7 @@ from colormath.color_conversions import convert_color
 from itertools import permutations
 from math import factorial
 from pprint import pformat
-from subprocess import Popen, PIPE
+from subprocess import Popen, PIPE, check_output
 from time import sleep
 import logging
 import os
@@ -316,6 +316,20 @@ class RubiksColorSolver(object):
         self.edges = []
         self.corners = []
 
+        self.crayola_colors = {
+            'Rd' : hashtag_rgb_to_labcolor('#C91111'), # Red
+            'Or' : hashtag_rgb_to_labcolor('#D84E09'), # Red Orange
+            'OR' : hashtag_rgb_to_labcolor('#FF8000'), # Orange
+            'Ye' : hashtag_rgb_to_labcolor('#F6EB20'), # Yellow
+            'Yg' : hashtag_rgb_to_labcolor('#51C201'), # Yellow Green
+            'Gr' : hashtag_rgb_to_labcolor('#1C8E0D'), # Green
+            'Sy' : hashtag_rgb_to_labcolor('#09C5F4'), # Sky Blue
+            'Bu' : hashtag_rgb_to_labcolor('#2862B9'), # Blue
+            'Pu' : hashtag_rgb_to_labcolor('#7E44BC'), # Purple
+            'Wh' : hashtag_rgb_to_labcolor('#FFFFFF'), # White
+             #'Br' : hashtag_rgb_to_labcolor('#943F07'), # Brown...too easy to mistake this for red/orange
+            'Bl' : hashtag_rgb_to_labcolor('#000000') # Black
+        }
 
     # ================
     # Printing methods
@@ -387,6 +401,8 @@ class RubiksColorSolver(object):
             for x in xrange(side.min_pos, side.max_pos+1):
                 color = side.squares[x].color
                 data.append(color_to_num[color])
+
+        log.info('Cube for kociemba: %s' % ''.join(map(str, data)))
         return data
 
     def cube_for_cubex(self):
@@ -410,6 +426,7 @@ class RubiksColorSolver(object):
             for x in xrange(side.min_pos, side.max_pos+1):
                 color = side.squares[x].color
                 data.append(color_to_num[color])
+        log.info('Cube for cubex: %s' % ''.join(map(str, data)))
         return data
 
     def get_side(self, position):
@@ -446,26 +463,14 @@ class RubiksColorSolver(object):
         Assign a color name to the square's LabColor object.
         This name is only used for debug output.
         """
-        crayola_colors = {
-            'Rd' : hashtag_rgb_to_labcolor('#C91111'), # Red
-            'Ro' : hashtag_rgb_to_labcolor('#D84E09'), # Red Orange
-            'Or' : hashtag_rgb_to_labcolor('#FF8000'), # Orange
-            'Ye' : hashtag_rgb_to_labcolor('#F6EB20'), # Yellow
-            'Yg' : hashtag_rgb_to_labcolor('#51C201'), # Yellow Green
-            'Gr' : hashtag_rgb_to_labcolor('#1C8E0D'), # Green
-            'Sy' : hashtag_rgb_to_labcolor('#09C5F4'), # Sky Blue
-            'Bu' : hashtag_rgb_to_labcolor('#2862B9'), # Blue
-            'Pu' : hashtag_rgb_to_labcolor('#7E44BC'), # Purple
-            'Wh' : hashtag_rgb_to_labcolor('#FFFFFF'), # White
-             #'Br' : hashtag_rgb_to_labcolor('#943F07'), # Brown...too easy to mistake this for red/orange
-            'Bl' : hashtag_rgb_to_labcolor('#000000') # Black
-        }
-        (crayola_color_matched, distance) = square.find_closest_match(crayola_colors, set_color=False)
+        (crayola_color_matched, distance) = square.find_closest_match(self.crayola_colors, set_color=False)
 
-        for (crayola_color_name, crayola_color) in crayola_colors.iteritems():
+        for (crayola_color_name, crayola_color) in self.crayola_colors.iteritems():
             if crayola_color == crayola_color_matched:
                 square.rawcolor.name = crayola_color_name
                 break
+
+        del self.crayola_colors[crayola_color_name]
 
     def find_top_six_colors(self):
 
@@ -770,10 +775,11 @@ class RubiksColorSolver(object):
 
         score_per_permutation = sorted(score_per_permutation)
 
-        if os.path.isfile('./utils/rubiks_solvers/cubex_C_ARM/cubex_ev3'):
-            self.cubex_file = './utils/rubiks_solvers/cubex_C_ARM/cubex_ev3'
-        elif os.path.isfile('../utils/cubex_ev3'):
+        if os.path.isfile('../utils/rubiks_solvers/cubex_C_ARM/cubex_ev3'):
             self.cubex_file = '../utils/rubiks_solvers/cubex_C_ARM/cubex_ev3'
+        else:
+            self.cubex_file = check_output('find . -name cubex_ev3', shell=True).splitlines()[0]
+        log.info("cubex_file: %s" % self.cubex_file)
 
         for (_, permutation) in score_per_permutation:
             total_distance = 0
@@ -874,16 +880,16 @@ class RubiksColorSolver(object):
 
         self.print_cube()
         self.print_layout()
-        return self.cube_for_cubex()
+        return (self.cube_for_kociemba(), self.cube_for_cubex())
 
 if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO,
                         format='%(asctime)s %(levelname)5s: %(message)s')
     log = logging.getLogger(__name__)
 
-    from testdata import corner_parity1, solved_cube1, color_parity2, color_parity3
+    from testdata import yellow_vs_green1
     cube = RubiksColorSolver()
-    cube.enter_scan_data(color_parity2)
-    cube.crunch_colors()
-    print ''.join(map(str, cube.cube_for_cubex()))
-    print ''.join(cube.cube_for_kociemba())
+    cube.enter_scan_data(yellow_vs_green1)
+    (kociemba, cubex) = cube.crunch_colors()
+    print "kociemba: %s" % ''.join(map(str, kociemba))
+    print "cubex: %s" % ''.join(map(str, cubex))

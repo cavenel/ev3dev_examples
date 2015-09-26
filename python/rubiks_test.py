@@ -21,7 +21,7 @@ while True:
         break
 
     last_time = current_time()
-    rub.resolve(False)
+    rub.resolve(True)
 
     if rub.shutdown_flag:
         break
