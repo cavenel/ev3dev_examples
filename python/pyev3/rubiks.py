@@ -1,8 +1,8 @@
 
 from ev3 import *
-from rubiks_rgb_solver import RubiksColorSolver
 from pprint import pformat
 from subprocess import check_output
+import json
 import signal
 
 class ScanError(Exception):
@@ -30,8 +30,12 @@ class Rubiks(Robot):
         self.cube = {}
         self.init_motors()
         self.state = ['U', 'D', 'F', 'L', 'B', 'R']
+        self.server_ip = None
+        self.server_username = None
+        self.server_path = None
         signal.signal(signal.SIGTERM, self.signal_term_handler)
         signal.signal(signal.SIGINT, self.signal_int_handler)
+        self.parse_server_conf()
 
     def init_motors(self):
         log.info("Initialize %s" % self.mot_push)
@@ -157,10 +161,6 @@ class Rubiks(Robot):
 
         if self.shutdown_flag:
             return
-
-        if (self.mot_push.get_position() > 15):
-            self.mot_push.goto_position(95, 300, 0, 300)
-            self.mot_push.wait_for_stop()
 
         # Push it forward so the cube is always in the same position
         # when we start the flip
@@ -351,11 +351,25 @@ class Rubiks(Robot):
         if self.shutdown_flag:
             return
 
+        if self.server_username and self.server_ip and self.server_path:
+            output = Popen(
+                ['ssh',
+                 '%s@%s' % (self.server_username, self.server_ip),
+                 '%s/python/pyev3/rubiks_rgb_solver.py' % self.server_path,
+                 '--rgb',
+                 "'%s'" % json.dumps(self.colors)],
+                stdout=PIPE).communicate()[0]
+            output = output.strip().strip()
+            self.cube_kociemba = list(output)
+
+        else:
+            from rubiks_rgb_solver import RubiksColorSolver
+            rgb_solver = RubiksColorSolver(False)
+            rgb_solver.enter_scan_data(self.colors)
+            (self.cube_kociemba, self.cube_cubex) = rgb_solver.crunch_colors()
+
         log.info("Scanned RGBs\n%s" % pformat(self.colors))
-        rgb_solver = RubiksColorSolver()
-        rgb_solver.enter_scan_data(self.colors)
-        (self.cube_kociemba, self.cube_cubex) = rgb_solver.crunch_colors()
-        log.info("Colors by numbers %s" % self.cube)
+        log.info("Final Colors: %s" % self.cube_kociemba)
 
     def move(self, face_down):
         position = self.state.index(face_down)
@@ -424,12 +438,37 @@ class Rubiks(Robot):
             else:
                 self.rotate_cube_blocked_1()
 
-    def resolve(self, computer):
-        if computer:
+    def parse_server_conf(self):
+        server_conf = check_output('find . -name server.conf', shell=True).splitlines()
+
+        if server_conf:
+            server_conf = server_conf[0]
+            log.info("server.conf is %s" %  server_conf)
+
+            with open(server_conf, 'r') as fh:
+                for line in fh.readlines():
+                    line = line.strip()
+                    line = line.replace(' ', '')
+                    (key, value) = line.split('=')
+
+                    if key == 'username':
+                        self.server_username = value
+                        log.info("server_username %s" % self.server_username)
+                    elif key == 'ip':
+                        self.server_ip = value
+                        log.info("server_ip %s" % self.server_ip)
+                    elif key == 'path':
+                        self.server_path = value
+                        log.info("server_path %s" % self.server_path)
+
+    def resolve(self):
+
+        if self.server_username and self.server_ip and self.server_path:
             output = Popen(
                 ['ssh',
-                 'dwalton76@192.168.0.13',
-                 '/home/dwalton76/lego-rubiks-cube/python/utils/rubiks_solvers/twophase_python/solve.py ' + ''.join(map(str, self.cube_kociemba))],
+                 '%s@%s' % (self.server_username, self.server_ip),
+                 '%s/python/utils/rubiks_solvers/twophase_python/solve.py %s' %\
+                 (self.server_path, ''.join(map(str, self.cube_kociemba)))],
                 stdout=PIPE).communicate()[0]
             output = output.strip().strip()
             actions = output.split(' ')
