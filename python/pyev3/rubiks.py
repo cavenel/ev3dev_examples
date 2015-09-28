@@ -57,6 +57,7 @@ class Rubiks(Robot):
 
     def shutdown(self):
         log.info('Shutting down')
+        self.leds.set_all('yellow')
         self.shutdown_flag = True
         self.mot_push.wait_for_stop()
         self.mot_push.stop()
@@ -258,6 +259,9 @@ class Rubiks(Robot):
 
     def scan_face(self):
 
+        if self.buttons.get_button('ENTER'):
+            self.shutdown()
+
         if self.shutdown_flag:
             return
 
@@ -403,6 +407,9 @@ class Rubiks(Robot):
         total_actions = len(actions)
         for (i, a) in enumerate(actions):
 
+            if self.buttons.get_button('ENTER'):
+                self.shutdown()
+
             if self.shutdown_flag:
                 break
 
@@ -431,6 +438,9 @@ class Rubiks(Robot):
         total_actions = len(actions)
 
         for (i, a) in enumerate(actions):
+
+            if self.buttons.get_button('ENTER'):
+                self.shutdown_flag = True
 
             if self.shutdown_flag:
                 break

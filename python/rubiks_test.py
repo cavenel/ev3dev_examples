@@ -19,6 +19,7 @@ try:
     rub.scan()
 
     if rub.shutdown_flag:
+        rub.leds.set_all('green')
         sys.exit(0)
 
     last_time = current_time()
