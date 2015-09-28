@@ -22,12 +22,20 @@ class Communicate(object):
     @staticmethod
     def read(path):
         with open(path, 'r') as pin:
-            return pin.read().strip()
+            try:
+                return pin.read().strip()
+            except IOError as e:
+                log.warning("Failed to read %s" % path)
+                raise e
 
     @staticmethod
     def write(path, value):
         with open(path, 'w') as pout:
-            pout.write(value)
+            try:
+                pout.write(value)
+            except IOError as e:
+                log.warning("Failed to write %s to %s" % (value, path))
+                raise e
 
     @staticmethod
     def min_max(value, mini=-100, maxi=100):
