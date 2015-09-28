@@ -4,6 +4,8 @@ from subprocess import Popen, PIPE
 import os
 import math
 import logging
+import array
+import fcntl
 
 log = logging.getLogger(__name__)
 
@@ -520,11 +522,62 @@ class Leds(Communicate):
         return self.get_led('green', 'right')
 
 
+class InvalidButton(Exception):
+    pass
+
+
+class Buttons(Communicate):
+
+    def __init__(self):
+        self.valid_buttons = ('UP', 'DOWN', 'LEFT', 'RIGHT', 'ENTER', 'ESC')
+        self.key_codes = {
+            'UP' : 103,
+            'DOWN' : 108,
+            'LEFT' : 105,
+            'RIGHT' : 106,
+            'ENTER' : 28,
+            'ESC' : 1
+        }
+        KEY_MAX = 0x2ff
+        self.BUF_LEN = (KEY_MAX + 7) / 8
+
+    def get_button(self, button):
+        """
+        Return True if button is pressed, else return False
+
+        Borrowed from:
+        https://github.com/ev3dev/ev3dev/wiki/Using-the-Buttons
+        """
+
+        def test_bit(bit, bytes):
+            # bit in bytes is 1 when released and 0 when pressed
+            return not bool(bytes[bit / 8] & (1 << (bit % 8)))
+
+        def EVIOCGKEY(length):
+            return 2 << (14+8+8) | length << (8+8) | ord('E') << 8 | 0x18
+
+        button = button.upper()
+
+        if button not in self.valid_buttons:
+            raise InvalidButton("%s is not a supported button" % button)
+
+        buf = array.array('B', [0] * self.BUF_LEN)
+
+        with open('/dev/input/by-path/platform-gpio-keys.0-event', 'r') as fd:
+            ret = fcntl.ioctl(fd, EVIOCGKEY(len(buf)), buf)
+
+        if ret < 0:
+            raise IOError("Could not read from /dev/input/by-path/platform-gpio-keys.0-event")
+
+        return test_bit(self.key_codes[button], buf) and True or False
+
+
 class Robot(Communicate):
 
     def __init__(self):
         self.leds = Leds()
         self.LCD = LCD()
+        self.buttons = Buttons()
 
     def beep(self):
         self.write('/sys/devices/platform/snd-legoev3/volume', '100')
