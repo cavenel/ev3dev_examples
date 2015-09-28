@@ -21,6 +21,7 @@ class Rubiks(Robot):
     corner_to_edge_diff = 60
 
     def __init__(self):
+        Robot.__init__(self)
         self.shutdown_flag = False
         self.mot_push = Motor('A', 'flipper')
         self.mot_bras = Motor('C', 'color arm')
@@ -368,6 +369,7 @@ class Rubiks(Robot):
                 run_rgb_solver = False
             else:
                 log.warning("Our connection to %s failed, we will run rubiks_rgb_solver locally" % self.server_ip)
+                self.leds.set_all('orange')
 
         if run_rgb_solver:
             from rubiks_rgb_solver import RubiksColorSolver
@@ -487,6 +489,7 @@ class Rubiks(Robot):
                 run_cubex_ev3 = False
             else:
                 log.warning("Our connection to %s failed, we will run cubex_ev3 locally" % self.server_ip)
+                self.leds.set_all('orange')
 
         if run_cubex_ev3:
             if os.path.isfile('../utils/rubiks_solvers/cubex_C_ARM/cubex_ev3'):

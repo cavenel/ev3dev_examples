@@ -14,6 +14,7 @@ log.info('Begin...')
 
 try:
     rub = Rubiks()
+    rub.leds.set_all('green')
     rub.wait_for_cube_insert()
     rub.scan()
 
@@ -22,6 +23,7 @@ try:
 
     last_time = current_time()
     rub.resolve()
+    rub.leds.set_all('green')
 
     if rub.shutdown_flag:
         sys.exit(0)
@@ -35,5 +37,6 @@ try:
     rub.mot_bras.stop()
     rub.mot_rotate.stop()
 except Exception as e:
+    rub.leds.set_all('red')
     log.exception(e)
     sys.exit(1)
