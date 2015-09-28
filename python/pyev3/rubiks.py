@@ -351,6 +351,8 @@ class Rubiks(Robot):
         if self.shutdown_flag:
             return
 
+        run_rgb_solver = True
+
         if self.server_username and self.server_ip and self.server_path:
             output = Popen(
                 ['ssh',
@@ -362,7 +364,12 @@ class Rubiks(Robot):
             output = output.strip().strip()
             self.cube_kociemba = list(output)
 
-        else:
+            if self.cube_kociemba:
+                run_rgb_solver = False
+            else:
+                log.warning("Our connection to %s failed, we will run rubiks_rgb_solver locally" % self.server_ip)
+
+        if run_rgb_solver:
             from rubiks_rgb_solver import RubiksColorSolver
             rgb_solver = RubiksColorSolver(False)
             rgb_solver.enter_scan_data(self.colors)
@@ -463,6 +470,8 @@ class Rubiks(Robot):
 
     def resolve(self):
 
+        run_cubex_ev3 = True
+
         if self.server_username and self.server_ip and self.server_path:
             output = Popen(
                 ['ssh',
@@ -471,10 +480,15 @@ class Rubiks(Robot):
                  (self.server_path, ''.join(map(str, self.cube_kociemba)))],
                 stdout=PIPE).communicate()[0]
             output = output.strip().strip()
-            actions = output.split(' ')
-            self.run_kociemba_actions(actions)
 
-        else:
+            if output:
+                actions = output.split(' ')
+                self.run_kociemba_actions(actions)
+                run_cubex_ev3 = False
+            else:
+                log.warning("Our connection to %s failed, we will run cubex_ev3 locally" % self.server_ip)
+
+        if run_cubex_ev3:
             if os.path.isfile('../utils/rubiks_solvers/cubex_C_ARM/cubex_ev3'):
                 cubex_file = '../utils/rubiks_solvers/cubex_C_ARM/cubex_ev3'
             else:
