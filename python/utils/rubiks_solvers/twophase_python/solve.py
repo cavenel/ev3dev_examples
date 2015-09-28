@@ -1,6 +1,8 @@
 #!/usr/bin/env python
 
+import argparse
 from search import Search
+
 '''
 Example Cube:
 
@@ -43,5 +45,9 @@ Which you pass to Search.solution() as one big string
 LLUFURFRFRFBRRBLBUUBDLFDDFDRDFDDURRLDURDLFBLBLUBLBBFUU
 '''
 
+parser = argparse.ArgumentParser()
+parser.add_argument('facelet', help='Facelet string', default=None)
+args = parser.parse_args()
+
 cube = Search()
-print cube.solution('LLUFURFRFRFBRRBLBUUBDLFDDFDRDFDDURRLDURDLFBLBLUBLBBFUU', maxDepth=21, timeOut=600, useSeparator='')
+print cube.solution(args.facelet, maxDepth=21, timeOut=600, useSeparator='')

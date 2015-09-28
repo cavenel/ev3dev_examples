@@ -1,13 +1,15 @@
 #!/usr/bin/env python
 
 from colormath.color_objects import sRGBColor, LabColor
-from colormath.color_diff import delta_e_cie1976
+from colormath.color_diff import delta_e_cie1976, delta_e_cie2000
 from colormath.color_conversions import convert_color
 from itertools import permutations
 from math import factorial
 from pprint import pformat
-from subprocess import Popen, PIPE
+from subprocess import Popen, PIPE, check_output
 from time import sleep
+import argparse
+import json
 import logging
 import os
 import sys
@@ -18,7 +20,7 @@ log = logging.getLogger(__name__)
 # cache the results
 dcache = {}
 
-def get_color_distance(c1, c2):
+def get_color_distance(c1, c2, on_server):
     if (c1, c2) in dcache:
         return dcache[(c1, c2)]
 
@@ -26,8 +28,11 @@ def get_color_distance(c1, c2):
         return dcache[(c2, c1)]
 
     # delta_e_cie2000 is better but is 3x slower on an EV3...1976 is good enough
-    #distance = delta_e_cie2000(c1, c2)
-    distance = delta_e_cie1976(c1, c2)
+    if on_server:
+        distance = delta_e_cie2000(c1, c2)
+    else:
+        distance = delta_e_cie1976(c1, c2)
+
     dcache[(c1, c2)] = distance
     return distance
 
@@ -73,11 +78,11 @@ class Edge(object):
         return False
 
     def _get_color_distances(self, colorA, colorB):
-        distanceAB = (get_color_distance(self.square1.rawcolor, colorA) +
-                      get_color_distance(self.square2.rawcolor, colorB))
+        distanceAB = (get_color_distance(self.square1.rawcolor, colorA, self.cube.on_server) +
+                      get_color_distance(self.square2.rawcolor, colorB, self.cube.on_server))
 
-        distanceBA = (get_color_distance(self.square1.rawcolor, colorB) +
-                      get_color_distance(self.square2.rawcolor, colorA))
+        distanceBA = (get_color_distance(self.square1.rawcolor, colorB, self.cube.on_server) +
+                      get_color_distance(self.square2.rawcolor, colorA, self.cube.on_server))
 
         return (distanceAB, distanceBA)
 
@@ -135,17 +140,17 @@ class Corner(object):
         return False
 
     def _get_color_distances(self, colorA, colorB, colorC):
-        distanceABC = (get_color_distance(self.square1.rawcolor, colorA) +
-                       get_color_distance(self.square2.rawcolor, colorB) +
-                       get_color_distance(self.square3.rawcolor, colorC))
+        distanceABC = (get_color_distance(self.square1.rawcolor, colorA, self.cube.on_server) +
+                       get_color_distance(self.square2.rawcolor, colorB, self.cube.on_server) +
+                       get_color_distance(self.square3.rawcolor, colorC, self.cube.on_server))
 
-        distanceCAB = (get_color_distance(self.square1.rawcolor, colorC) +
-                       get_color_distance(self.square2.rawcolor, colorA) +
-                       get_color_distance(self.square3.rawcolor, colorB))
+        distanceCAB = (get_color_distance(self.square1.rawcolor, colorC, self.cube.on_server) +
+                       get_color_distance(self.square2.rawcolor, colorA, self.cube.on_server) +
+                       get_color_distance(self.square3.rawcolor, colorB, self.cube.on_server))
 
-        distanceBCA = (get_color_distance(self.square1.rawcolor, colorB) +
-                       get_color_distance(self.square2.rawcolor, colorC) +
-                       get_color_distance(self.square3.rawcolor, colorA))
+        distanceBCA = (get_color_distance(self.square1.rawcolor, colorB, self.cube.on_server) +
+                       get_color_distance(self.square2.rawcolor, colorC, self.cube.on_server) +
+                       get_color_distance(self.square3.rawcolor, colorA, self.cube.on_server))
         return (distanceABC, distanceCAB, distanceBCA)
 
     def color_distance(self, colorA, colorB, colorC):
@@ -196,7 +201,8 @@ class Corner(object):
 
 class Square(object):
 
-    def __init__(self, side, position, red, green, blue):
+    def __init__(self, side, cube, position, red, green, blue):
+        self.cube = cube
         self.side = side
         self.position = position
         self.red = red
@@ -213,7 +219,7 @@ class Square(object):
         self.cie_data = []
 
         for (color, color_obj) in crayon_box.iteritems():
-            distance = get_color_distance(self.rawcolor, color_obj)
+            distance = get_color_distance(self.rawcolor, color_obj, self.cube.on_server)
             self.cie_data.append((distance, color_obj))
         self.cie_data = sorted(self.cie_data)
 
@@ -233,7 +239,8 @@ class Square(object):
 
 class CubeSide(object):
 
-    def __init__(self, name):
+    def __init__(self, cube, name):
+        self.cube = cube
         self.name = name # U, L, etc
         self.color = None # Will be the color of the middle square
         self.squares = {}
@@ -267,7 +274,7 @@ class CubeSide(object):
         return self.name
 
     def set_square(self, position, red, green, blue):
-        self.squares[position] = Square(self, position, red, green, blue)
+        self.squares[position] = Square(self, self.cube, position, red, green, blue)
 
         if position == self.mid_pos:
             self.middle_square = self.squares[position]
@@ -290,19 +297,27 @@ class RubiksColorSolver(object):
       D
     """
 
-    def __init__(self):
+    def __init__(self, on_server):
+        self.on_server = on_server
         self.width = 3
         self.blocks_per_side = self.width * self.width
         self.colors = []
         self.scan_data = {}
+        self.tools_file = None
+        self.cubex_file = None
+
+        if on_server:
+            self.permutation_limit = 40320
+        else:
+            self.permutation_limit = 720
 
         self.sides = {
-          'U' : CubeSide('U'),
-          'L' : CubeSide('L'),
-          'F' : CubeSide('F'),
-          'R' : CubeSide('R'),
-          'B' : CubeSide('B'),
-          'D' : CubeSide('D'),
+          'U' : CubeSide(self, 'U'),
+          'L' : CubeSide(self, 'L'),
+          'F' : CubeSide(self, 'F'),
+          'R' : CubeSide(self, 'R'),
+          'B' : CubeSide(self, 'B'),
+          'D' : CubeSide(self, 'D'),
         }
 
         self.sideU = self.sides['U']
@@ -316,6 +331,20 @@ class RubiksColorSolver(object):
         self.edges = []
         self.corners = []
 
+        self.crayola_colors = {
+            'Rd' : hashtag_rgb_to_labcolor('#C91111'), # Red
+            'Or' : hashtag_rgb_to_labcolor('#D84E09'), # Red Orange
+            'OR' : hashtag_rgb_to_labcolor('#FF8000'), # Orange
+            'Ye' : hashtag_rgb_to_labcolor('#F6EB20'), # Yellow
+            'Yg' : hashtag_rgb_to_labcolor('#51C201'), # Yellow Green
+            'Gr' : hashtag_rgb_to_labcolor('#1C8E0D'), # Green
+            'Sy' : hashtag_rgb_to_labcolor('#09C5F4'), # Sky Blue
+            'Bu' : hashtag_rgb_to_labcolor('#2862B9'), # Blue
+            'Pu' : hashtag_rgb_to_labcolor('#7E44BC'), # Purple
+            'Wh' : hashtag_rgb_to_labcolor('#FFFFFF'), # White
+             #'Br' : hashtag_rgb_to_labcolor('#943F07'), # Brown...too easy to mistake this for red/orange
+            'Bl' : hashtag_rgb_to_labcolor('#000000') # Black
+        }
 
     # ================
     # Printing methods
@@ -387,6 +416,8 @@ class RubiksColorSolver(object):
             for x in xrange(side.min_pos, side.max_pos+1):
                 color = side.squares[x].color
                 data.append(color_to_num[color])
+
+        log.info('Cube for kociemba: %s' % ''.join(map(str, data)))
         return data
 
     def cube_for_cubex(self):
@@ -410,6 +441,7 @@ class RubiksColorSolver(object):
             for x in xrange(side.min_pos, side.max_pos+1):
                 color = side.squares[x].color
                 data.append(color_to_num[color])
+        log.info('Cube for cubex: %s' % ''.join(map(str, data)))
         return data
 
     def get_side(self, position):
@@ -446,26 +478,14 @@ class RubiksColorSolver(object):
         Assign a color name to the square's LabColor object.
         This name is only used for debug output.
         """
-        crayola_colors = {
-            'Rd' : hashtag_rgb_to_labcolor('#C91111'), # Red
-            'Ro' : hashtag_rgb_to_labcolor('#D84E09'), # Red Orange
-            'Or' : hashtag_rgb_to_labcolor('#FF8000'), # Orange
-            'Ye' : hashtag_rgb_to_labcolor('#F6EB20'), # Yellow
-            'Yg' : hashtag_rgb_to_labcolor('#51C201'), # Yellow Green
-            'Gr' : hashtag_rgb_to_labcolor('#1C8E0D'), # Green
-            'Sy' : hashtag_rgb_to_labcolor('#09C5F4'), # Sky Blue
-            'Bu' : hashtag_rgb_to_labcolor('#2862B9'), # Blue
-            'Pu' : hashtag_rgb_to_labcolor('#7E44BC'), # Purple
-            'Wh' : hashtag_rgb_to_labcolor('#FFFFFF'), # White
-             #'Br' : hashtag_rgb_to_labcolor('#943F07'), # Brown...too easy to mistake this for red/orange
-            'Bl' : hashtag_rgb_to_labcolor('#000000') # Black
-        }
-        (crayola_color_matched, distance) = square.find_closest_match(crayola_colors, set_color=False)
+        (crayola_color_matched, distance) = square.find_closest_match(self.crayola_colors, set_color=False)
 
-        for (crayola_color_name, crayola_color) in crayola_colors.iteritems():
+        for (crayola_color_name, crayola_color) in self.crayola_colors.iteritems():
             if crayola_color == crayola_color_matched:
                 square.rawcolor.name = crayola_color_name
                 break
+
+        del self.crayola_colors[crayola_color_name]
 
     def find_top_six_colors(self):
 
@@ -677,6 +697,29 @@ class RubiksColorSolver(object):
         score_per_permutation = []
         unresolved_edges = [edge for edge in self.edges if edge.valid is False]
         permutation_count = factorial(len(self.needed_edges))
+
+        # 6! = 720
+        # 7! = 5040
+        while permutation_count > self.permutation_limit:
+            log.info("Permutation count is %d which is too high...resolve one edge" % permutation_count)
+
+            scores = []
+            for edge in unresolved_edges:
+                for (colorA, colorB) in self.needed_edges:
+                    distance = edge.color_distance(colorA, colorB)
+                    scores.append((distance, edge, (colorA, colorB)))
+
+            scores = sorted(scores)
+            (distance, edge_best_match, (colorA, colorB)) = scores[0]
+
+            log.info("%s/%s best match is %s with distance %d" % (colorA.name, colorB.name, edge_best_match, distance))
+            edge_best_match.update_colors(colorA, colorB)
+            edge_best_match.valid = True
+            self.needed_edges.remove((colorA, colorB))
+
+            unresolved_edges= [edge for edge in self.edges if edge.valid is False]
+            permutation_count = factorial(len(self.needed_edges))
+
         log.info("Evaluating %d permutations" % permutation_count)
 
         for edge_permutation in permutations(unresolved_edges):
@@ -716,13 +759,39 @@ class RubiksColorSolver(object):
         Long term we should add this parity logic to this class but for now
         just call cubex and see if it found an error.
         """
-        arg = ''.join(map(str, self.cube_for_cubex()))
-        output = Popen([self.cubex_file, arg], stdout=PIPE).communicate()[0]
-        output = output.strip()
-        if 'error' in output:
-            log.info("Invalid parity:\n\n%s\n" % output)
+        if self.on_server:
+            # We do not have an x86 build of cubex_ev3 so use the kociemba
+            # library to verify parity
+
+            if not self.tools_file:
+                if os.path.isfile('../utils/rubiks_solvers/twophase_python/tools.py'):
+                    self.tools_file = '../utils/rubiks_solvers/twophase_python/tools.py'
+                else:
+                    self.tools_file = check_output('find . -name tools.py', shell=True).splitlines()[0]
+                log.info("tools_file: %s" % self.tools_file)
+
+            arg = ''.join(map(str, self.cube_for_kociemba()))
+            output = Popen([self.tools_file, '--verify', arg], stdout=PIPE).communicate()[0]
+            output = int(output.strip())
+            if output == 0:
+                return True
             return False
-        return True
+        else:
+
+            if not self.cubex_file:
+                if os.path.isfile('../utils/rubiks_solvers/cubex_C_ARM/cubex_ev3'):
+                    self.cubex_file = '../utils/rubiks_solvers/cubex_C_ARM/cubex_ev3'
+                else:
+                    self.cubex_file = check_output('find . -name cubex_ev3', shell=True).splitlines()[0]
+                log.info("cubex_file: %s" % self.cubex_file)
+
+            arg = ''.join(map(str, self.cube_for_cubex()))
+            output = Popen([self.cubex_file, arg], stdout=PIPE).communicate()[0]
+            output = output.strip()
+            if 'error' in output:
+                log.info("Invalid parity:\n\n%s\n" % output)
+                return False
+            return True
 
     def resolve_needed_corners(self):
         self.needed_corners = sorted(self.needed_corners)
@@ -738,7 +807,7 @@ class RubiksColorSolver(object):
 
         # 6! = 720
         # 7! = 5040
-        while permutation_count > 720:
+        while permutation_count > self.permutation_limit:
             log.info("Permutation count is %d which is too high...resolve one corner" % permutation_count)
 
             scores = []
@@ -769,11 +838,6 @@ class RubiksColorSolver(object):
             score_per_permutation.append((total_distance, corner_permutation))
 
         score_per_permutation = sorted(score_per_permutation)
-
-        if os.path.isfile('./utils/rubiks_solvers/cubex_C_ARM/cubex_ev3'):
-            self.cubex_file = './utils/rubiks_solvers/cubex_C_ARM/cubex_ev3'
-        elif os.path.isfile('../utils/cubex_ev3'):
-            self.cubex_file = '../utils/rubiks_solvers/cubex_C_ARM/cubex_ev3'
 
         for (_, permutation) in score_per_permutation:
             total_distance = 0
@@ -874,16 +938,34 @@ class RubiksColorSolver(object):
 
         self.print_cube()
         self.print_layout()
-        return self.cube_for_cubex()
+        return (self.cube_for_kociemba(), self.cube_for_cubex())
 
 if __name__ == '__main__':
-    logging.basicConfig(level=logging.INFO,
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--rgb', help='RGB json', default=None)
+    parser.add_argument('--method', help='cubex or kociemba', default='kociemba')
+    args = parser.parse_args()
+
+    logging.basicConfig(filename='/tmp/rubiks-rgb-solver.log',
+                        level=logging.INFO,
                         format='%(asctime)s %(levelname)5s: %(message)s')
     log = logging.getLogger(__name__)
 
-    from testdata import corner_parity1, solved_cube1, color_parity2, color_parity3
-    cube = RubiksColorSolver()
-    cube.enter_scan_data(color_parity2)
-    cube.crunch_colors()
-    print ''.join(map(str, cube.cube_for_cubex()))
-    print ''.join(cube.cube_for_kociemba())
+    from testdata import edge1
+    cube = RubiksColorSolver(True)
+
+    if args.rgb:
+        scan_data_str_keys = json.loads(args.rgb)
+        scan_data = {}
+        for (key, value) in scan_data_str_keys.iteritems():
+            scan_data[int(key)] = value
+        cube.enter_scan_data(scan_data)
+    else:
+        cube.enter_scan_data(edge1)
+
+    (kociemba, cubex) = cube.crunch_colors()
+
+    if args.method == 'kociemba':
+        print ''.join(map(str, kociemba))
+    else:
+        print ''.join(map(str, cubex))

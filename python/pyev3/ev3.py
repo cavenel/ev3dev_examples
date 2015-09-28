@@ -4,6 +4,8 @@ from subprocess import Popen, PIPE
 import os
 import math
 import logging
+import array
+import fcntl
 
 log = logging.getLogger(__name__)
 
@@ -22,12 +24,20 @@ class Communicate(object):
     @staticmethod
     def read(path):
         with open(path, 'r') as pin:
-            return pin.read().strip()
+            try:
+                return pin.read().strip()
+            except IOError as e:
+                log.warning("Failed to read %s" % path)
+                raise e
 
     @staticmethod
     def write(path, value):
         with open(path, 'w') as pout:
-            pout.write(value)
+            try:
+                pout.write(value)
+            except IOError as e:
+                log.warning("Failed to write %s to %s" % (value, path))
+                raise e
 
     @staticmethod
     def min_max(value, mini=-100, maxi=100):
@@ -394,46 +404,172 @@ class LCD(Communicate):
         os.system('cat /dev/zero > /dev/fb0')
 
 
+class InvalidColor(Exception):
+    pass
+
 class Leds(Communicate):
 
     def __init__(self):
         self.path = '/sys/class/leds/'
 
+    def _get_path(self, color, led):
+        """
+        The four LEDs are:
+
+        ev3-left0:red:ev3dev
+        ev3-left1:green:ev3dev
+        ev3-right0:red:ev3dev
+        ev3-right1:green:ev3dev
+        """
+
+        if color == 'red':
+            color_text = '0:red'
+        elif color == 'green':
+            color_text = '1:green'
+        else:
+            raise InvalidColor("%s is not a supported color (red, green)" % color)
+
+        return self.path + 'ev3-' + led + color_text + ':ev3dev'
+
     def set_led(self, color, led, value):
-        color_text = ['red', 'green']
-        led_text = ['left', 'right']
-        path = self.path + 'ev3:' + color_text[color] + ':' + led_text[led]
-        self.write(path + '/brightness', str(value))
+        path = os.path.join(self._get_path(color, led), 'brightness')
+        self.write(path, str(value))
+
+    def set_all(self, color, value=255):
+
+        if color == 'red':
+            self.set_led('red', 'left', value)
+            self.set_led('red', 'right', value)
+            self.set_led('green', 'left', 0)
+            self.set_led('green', 'right', 0)
+
+        elif color == 'green':
+            self.set_led('red', 'left', 0)
+            self.set_led('red', 'right', 0)
+            self.set_led('green', 'left', value)
+            self.set_led('green', 'right', value)
+
+        elif color == 'orange':
+            self.set_led('red', 'left', 255)
+            self.set_led('red', 'right', 255)
+            self.set_led('green', 'left', 180)
+            self.set_led('green', 'right', 180)
+
+        elif color == 'yellow':
+            self.set_led('red', 'left', 25)
+            self.set_led('red', 'right', 25)
+            self.set_led('green', 'left', 255)
+            self.set_led('green', 'right', 255)
+
+        elif color == 'off':
+            self.set_led('red', 'left', 0)
+            self.set_led('red', 'right', 0)
+            self.set_led('green', 'left', 0)
+            self.set_led('green', 'right', 0)
+
+        else:
+            raise InvalidColor("%s is not a supported color" % color)
 
     def set_led_red_left(self, value):
-        self.set_led(0, 0, value)
+        self.set_led('red', 'left', value)
 
     def set_led_red_right(self, value):
-        self.set_led(0, 1, value)
+        self.set_led('red', 'right', value)
 
     def set_led_green_left(self, value):
-        self.set_led(1, 0, value)
+        self.set_led('green', 'left', value)
 
     def set_led_green_right(self, value):
-        self.set_led(1, 1, value)
+        self.set_led('green', 'right', value)
 
     def get_led(self, color, led):
-        color_text = ['red', 'green']
-        led_text = ['left', 'right']
-        path = self.path + 'ev3:' + color_text[color] + ':' + led_text[led]
-        return int(self.read(path + '/brightness'))
+        path = os.path.join(self._get_path(color, led), 'brightness')
+        return int(self.read(path))
+
+    def get_all(self):
+        red_left = self.get_led('red', 'left')
+        red_right = self.get_led('red', 'right')
+        green_left = self.get_led('green', 'left')
+        green_right = self.get_led('green', 'right')
+
+        if red_left and red_right and not green_left and not green_right:
+            return 'red'
+
+        elif not red_left and not red_right and green_left and green_right:
+            return 'green'
+
+        elif red_left == 255 and red_right == 255 and green_left == 180 and green_right == 180:
+            return 'orange'
+
+        elif red_left == 25 and red_right == 25 and green_left == 255 and green_right == 255:
+            return 'yellow'
+
+        elif not red_left and not red_right and not green_left and not green_right:
+            return 'off'
+
+        return (red_left, red_right, green_left, green_right)
 
     def get_led_red_left(self):
-        return self.get_led(0, 0)
+        return self.get_led('red', 'left')
 
     def get_led_red_right(self):
-        return self.get_led(0, 1)
+        return self.get_led('red', 'right')
 
     def get_led_green_left(self):
-        return self.get_led(1, 0)
+        return self.get_led('green', 'left')
 
     def get_led_green_right(self):
-        return self.get_led(1, 1)
+        return self.get_led('green', 'right')
+
+
+class InvalidButton(Exception):
+    pass
+
+
+class Buttons(Communicate):
+
+    def __init__(self):
+        self.valid_buttons = ('UP', 'DOWN', 'LEFT', 'RIGHT', 'ENTER', 'ESC')
+        self.key_codes = {
+            'UP' : 103,
+            'DOWN' : 108,
+            'LEFT' : 105,
+            'RIGHT' : 106,
+            'ENTER' : 28,
+            'ESC' : 1
+        }
+        KEY_MAX = 0x2ff
+        self.BUF_LEN = (KEY_MAX + 7) / 8
+
+    def get_button(self, button):
+        """
+        Return True if button is pressed, else return False
+
+        Borrowed from:
+        https://github.com/ev3dev/ev3dev/wiki/Using-the-Buttons
+        """
+
+        def test_bit(bit, bytes):
+            # bit in bytes is 1 when released and 0 when pressed
+            return not bool(bytes[bit / 8] & (1 << (bit % 8)))
+
+        def EVIOCGKEY(length):
+            return 2 << (14+8+8) | length << (8+8) | ord('E') << 8 | 0x18
+
+        button = button.upper()
+
+        if button not in self.valid_buttons:
+            raise InvalidButton("%s is not a supported button" % button)
+
+        buf = array.array('B', [0] * self.BUF_LEN)
+
+        with open('/dev/input/by-path/platform-gpio-keys.0-event', 'r') as fd:
+            ret = fcntl.ioctl(fd, EVIOCGKEY(len(buf)), buf)
+
+        if ret < 0:
+            raise IOError("Could not read from /dev/input/by-path/platform-gpio-keys.0-event")
+
+        return test_bit(self.key_codes[button], buf) and True or False
 
 
 class Robot(Communicate):
@@ -441,6 +577,7 @@ class Robot(Communicate):
     def __init__(self):
         self.leds = Leds()
         self.LCD = LCD()
+        self.buttons = Buttons()
 
     def beep(self):
         self.write('/sys/devices/platform/snd-legoev3/volume', '100')
