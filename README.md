@@ -10,6 +10,17 @@ For python/rubiks_test.py:
 - pip install colormath
 
 
+UI
+==
+- Hold down the center button for several seconds to exit the program (the LED
+  will turn yellow). This is handy if the arm fails to flip the cube and you
+  want to stop and start over.
+- If you have a server.conf file but cannot reach the server the LED will change
+  to orange. The color analyzer and solution program will both run on the ev3
+  so orange is a sign that things will run a little slower.
+- If we hit an eror the LED will turn RED. Check the rubiks.log file to see what
+  went wrong.
+
 Server
 ======
 It is possible to run the color analyzing software and the rubiks cube solution
@@ -32,4 +43,3 @@ dwalton76@ev3dev[python]#
 
 You will need to create ssh keys so that you can login without a password
 http://www.thegeekstuff.com/2008/11/3-steps-to-perform-ssh-login-without-password-using-ssh-keygen-ssh-copy-id/
-
