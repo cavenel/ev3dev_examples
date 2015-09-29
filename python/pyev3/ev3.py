@@ -529,14 +529,14 @@ class InvalidButton(Exception):
 class Buttons(Communicate):
 
     def __init__(self):
-        self.valid_buttons = ('UP', 'DOWN', 'LEFT', 'RIGHT', 'ENTER', 'ESC')
+        self.valid_buttons = ('UP', 'DOWN', 'LEFT', 'RIGHT', 'ENTER', 'BACKSPACE')
         self.key_codes = {
             'UP' : 103,
             'DOWN' : 108,
             'LEFT' : 105,
             'RIGHT' : 106,
             'ENTER' : 28,
-            'ESC' : 1
+            'BACKSPACE' : 14
         }
         KEY_MAX = 0x2ff
         self.BUF_LEN = (KEY_MAX + 7) / 8
