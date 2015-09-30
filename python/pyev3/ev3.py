@@ -304,6 +304,7 @@ class Motor(Communicate):
             self.set_duty_cycle_sp(speed)
         self.set_regulation_mode(regulate)
         self.set_run_mode('run-forever')
+        self.wait_for_start()
 
     def rotate_time(self, time, speed=480, up=0, down=0, regulate='on', stop_mode='brake'):
         log.info("%s rotate for %dms at speed %d" % (self, time, speed))
@@ -316,6 +317,7 @@ class Motor(Communicate):
             self.set_duty_cycle_sp(speed)
         self.set_time_sp(time)
         self.set_run_mode('run-timed')
+        self.wait_for_start()
 
     def rotate_position(self, position, speed=480, up=0, down=0, regulate='on', stop_mode='brake', accuracy_sp=None):
         log.info("%s rotate for %d at speed %d" % (self, position, speed))
@@ -328,6 +330,7 @@ class Motor(Communicate):
             self.set_duty_cycle_sp(speed)
         self.set_position_sp(position)
         self.set_run_mode('run-to-rel-pos')
+        self.wait_for_start()
 
     def goto_exact_position(self, position, regulate='on', accuracy_sp=None):
         if regulate != 'on':
@@ -357,6 +360,7 @@ class Motor(Communicate):
         self.set_position_sp(position)
         sign = math.copysign(1, self.get_position() - position)
         self.set_run_mode('run-to-abs-pos')
+        self.wait_for_start()
 
         if accuracy_sp or wait:
             self.wait_for_stop()
@@ -368,6 +372,23 @@ class Motor(Communicate):
         if accuracy_sp:
             self.goto_exact_position(position, regulate, accuracy_sp)
 
+    def wait_for_start(self):
+        prev = None
+        attempt = 0
+
+        while True:
+            curr = self.get_position()
+
+            if prev is not None and curr != prev:
+                return
+            prev = curr
+            attempt += 1
+
+            # If it was a short move for the motor maybe we missed it...don't
+            # stay in this loop for forever
+            if attempt >= 50:
+                return
+
     def wait_for_stop(self):
         prev = None
         no_movement = 0
@@ -378,7 +399,7 @@ class Motor(Communicate):
 
             if prev is not None and abs(curr - prev) < 3:
                 no_movement += 1
-                if no_movement >= 5:
+                if no_movement >= 3:
                     break
                 else:
                     continue

@@ -17,7 +17,8 @@ class Rubiks(Robot):
         41, 43, 44, 45, 42, 39, 38, 37, 40,
         32, 34, 35, 36, 33, 30, 29, 28, 31]
 
-    rotate_speed = 300
+    hold_cube_pos = 85
+    rotate_speed = 600
     corner_to_edge_diff = 60
 
     def __init__(self):
@@ -40,7 +41,7 @@ class Rubiks(Robot):
 
     def init_motors(self):
         log.info("Initialize %s" % self.mot_push)
-        self.mot_push.rotate_forever(-70)
+        self.mot_push.rotate_forever(-130)
         self.mot_push.wait_for_stop()
         self.mot_push.stop()
         self.mot_push.reset()
@@ -92,7 +93,6 @@ class Rubiks(Robot):
             0,
             300,
             stop_mode='hold', accuracy_sp=100)
-
         self.mot_rotate.wait_for_stop()
         self.mot_rotate.stop()
 
@@ -116,13 +116,15 @@ class Rubiks(Robot):
     def rotate_cube_blocked(self, direction, nb):
 
         # Move the arm down to hold the block in place
-        self.mot_push.goto_position(120, 300, 0, 300, stop_mode='hold')
-        self.mot_push.wait_for_stop()
+        if self.mot_push.get_position() < Rubiks.hold_cube_pos:
+            self.mot_push.goto_position(Rubiks.hold_cube_pos, 300, stop_mode='hold')
+            self.mot_push.wait_for_start()
+            self.mot_push.wait_for_stop()
 
-        OVERROTATE = 55
+        # This depends on lot on Rubiks.rotate_speed
+        OVERROTATE = 25
         final_dest = 135 * round((self.mot_rotate.get_position() + (270 * direction * nb)) / 135.0)
         temp_dest = final_dest + (OVERROTATE * direction)
-        #log.info("temp_dest %d, final_dest %d" % (temp_dest, final_dest))
 
         self.mot_rotate.goto_position(
             temp_dest,
@@ -131,7 +133,6 @@ class Rubiks(Robot):
             300,
             stop_mode='hold', accuracy_sp=100)
         self.mot_rotate.wait_for_stop()
-        self.mot_rotate.stop()
 
         self.mot_rotate.goto_position(
             final_dest,
@@ -155,7 +156,7 @@ class Rubiks(Robot):
         """
         Move the flipper arm out of the way
         """
-        self.mot_push.goto_position(0, 300, 0, 300)
+        self.mot_push.goto_position(0, 400)
         self.mot_push.wait_for_stop()
         self.mot_push.stop()
 
@@ -164,19 +165,22 @@ class Rubiks(Robot):
         if self.shutdown_flag:
             return
 
+        current_position = self.mot_push.get_position()
+
         # Push it forward so the cube is always in the same position
         # when we start the flip
-        self.mot_push.goto_position(95, 300, 0, 300)
-        self.mot_push.wait_for_stop()
+        if (current_position <= Rubiks.hold_cube_pos - 10 or
+            current_position >= Rubiks.hold_cube_pos + 10):
+            self.mot_push.goto_position(Rubiks.hold_cube_pos, 400)
+            self.mot_push.wait_for_stop()
 
         # Grab the cube and pull back
         self.mot_push.goto_position(180, 400, 200, 0)
         self.mot_push.wait_for_stop()
-        time.sleep(0.2)
 
         # At this point the cube is at an angle, push it forward to
         # drop it back down in the turntable
-        self.mot_push.goto_position(95, 300, 0, 300)
+        self.mot_push.goto_position(Rubiks.hold_cube_pos, 600)
         self.mot_push.wait_for_stop()
 
         transformation = [2, 4, 1, 3, 0, 5]
@@ -208,7 +212,6 @@ class Rubiks(Robot):
         self.mot_rotate.rotate_position(540, speed=200)
         while self.mot_rotate.is_running():
             data.append((self.infrared_sensor.get_prox(), self.mot_rotate.get_position()))
-            #time.sleep(0.05)
 
         data = sorted(data)
         log.info("bloc cube data\n%s" % pformat(data))
@@ -234,7 +237,8 @@ class Rubiks(Robot):
         self.mot_rotate.reset()
 
     def put_arm_middle(self):
-        self.mot_bras.goto_position(-750, 900, stop_mode='hold')
+        self.mot_bras.goto_position(-750, 1200, stop_mode='hold')
+        self.mot_bras.wait_for_stop()
 
     def put_arm_corner(self, i):
         if i == 2:
@@ -244,7 +248,8 @@ class Rubiks(Robot):
         else:
             diff = 0
         diff = 0
-        self.mot_bras.goto_position(-580 - diff, 500, stop_mode='hold')
+        self.mot_bras.goto_position(-580 - diff, 1200, stop_mode='hold')
+        self.mot_bras.wait_for_stop()
 
     def put_arm_edge(self, i):
         #if i >= 2 and i <= 4:
@@ -252,12 +257,18 @@ class Rubiks(Robot):
         #else:
         #    diff = 0
         diff = 0
-        self.mot_bras.goto_position(-650 - diff, 500, stop_mode='hold')
+        self.mot_bras.goto_position(-650 - diff, 1200, stop_mode='hold')
+        self.mot_bras.wait_for_stop()
 
     def remove_arm(self):
-        self.mot_bras.goto_position(0, 500)
+        self.mot_bras.goto_position(0, 1200)
+        self.mot_bras.wait_for_stop()
 
-    def scan_face(self):
+    def remove_arm_halfway(self):
+        self.mot_bras.goto_position(-400, 1200)
+        self.mot_bras.wait_for_stop()
+
+    def scan_face(self, last_face=False):
 
         if self.buttons.get_button('ENTER'):
             self.shutdown()
@@ -270,8 +281,6 @@ class Rubiks(Robot):
 
         log.info('scanning face')
         self.put_arm_middle()
-        self.mot_bras.wait_for_stop()
-        self.mot_bras.stop()
         self.colors[int(Rubiks.scan_order[self.k])] = tuple(self.color_sensor.get_rgb())
 
         self.k += 1
@@ -280,12 +289,11 @@ class Rubiks(Robot):
         i += 1
 
         # The gear ratio is 3:1 so 1080 is one full rotation
+        self.mot_rotate.wait_for_stop() # just to be sure
         self.mot_rotate.reset()
-        time.sleep(0.05)
-        self.mot_rotate.rotate_position(1080, 200, 0, 0, 'on', stop_mode='hold')
-        time.sleep(0.1)
+        self.mot_rotate.rotate_position(1080, 400, 0, 0, 'on', stop_mode='hold')
 
-        while math.fabs(self.mot_rotate.get_speed()) > 2:
+        while self.mot_rotate.is_running():
             current_position = self.mot_rotate.get_position()
 
             # 135 is 1/8 of full rotation
@@ -299,36 +307,34 @@ class Rubiks(Robot):
                 i += 1
                 self.k += 1
 
-                if i % 2:
+                if i == 9:
+                    # Last face, move the color arm all the way out of the way
+                    if last_face:
+                        self.remove_arm()
+
+                    # Move the color arm far enough away so that the flipper
+                    # arm doesn't hit it
+                    else:
+                        self.remove_arm_halfway()
+                elif i % 2:
                     self.put_arm_corner(i)
                 else:
                     self.put_arm_edge(i)
-
-            if not self.mot_rotate.is_running():
-                break
 
             if i == 9 or self.shutdown_flag:
                 self.mot_rotate.stop()
                 break
 
-        if self.shutdown_flag:
-            return
-
-        if i < 9:
+        if not self.shutdown_flag and i < 9:
             raise ScanError('i is %d..should be 9' % i)
 
         self.mot_rotate.wait_for_stop()
-        self.mot_rotate.stop()
 
         # If we over rotated at all, back up
         self.mot_rotate.goto_position(1080, 200, 0, 0, 'on', stop_mode='hold', accuracy_sp=100)
         self.mot_rotate.wait_for_stop()
         self.mot_rotate.stop()
         self.mot_rotate.reset()
-
-        #self.mot_rotate.reset_position()
-        self.remove_arm()
-        self.mot_bras.wait_for_stop()
 
     def scan(self):
         self.colors = {}
@@ -351,7 +357,7 @@ class Rubiks(Robot):
         self.scan_face()
 
         self.flip()
-        self.scan_face()
+        self.scan_face(last_face=True)
 
         if self.shutdown_flag:
             return
