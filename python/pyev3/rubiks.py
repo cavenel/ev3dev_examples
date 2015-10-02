@@ -494,7 +494,7 @@ class Rubiks(Robot):
             output = Popen(
                 ['ssh',
                  '%s@%s' % (self.server_username, self.server_ip),
-                 '%s/python/utils/rubiks_solvers/twophase_python/solve.py %s' %\
+                 '%s/python/pyev3/twophase_python/solve.py %s' %\
                  (self.server_path, ''.join(map(str, self.cube_kociemba)))],
                 stdout=PIPE).communicate()[0]
             output = output.strip().strip()

@@ -714,8 +714,8 @@ class RubiksColorSolver(object):
             # library to verify parity
 
             if not self.tools_file:
-                if os.path.isfile('../utils/rubiks_solvers/twophase_python/tools.py'):
-                    self.tools_file = '../utils/rubiks_solvers/twophase_python/tools.py'
+                if os.path.isfile('twophase_python/tools.py'):
+                    self.tools_file = 'twophase_python/tools.py'
                 else:
                     self.tools_file = check_output('find . -name tools.py', shell=True).splitlines()[0]
                 log.info("tools_file: %s" % self.tools_file)
