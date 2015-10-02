@@ -306,8 +306,15 @@ class RubiksColorSolver(object):
         self.tools_file = None
         self.cubex_file = None
 
+        # 6! = 720
+        # 7! = 5040
+        # 8! = 40320
         if on_server:
-            self.permutation_limit = 40320
+            # With a limit of 40320 it takes 3.6s to resolve the colors for a cube
+            # With a limit of  5040 it takes 1.5s to resolve the colors for a cube
+            # With a limit of   720 it takes 1.2s to resolve the colors for a cube
+            # These numbers are from a beefy server, not EV3
+            self.permutation_limit = 5040
         else:
             self.permutation_limit = 720
 
@@ -686,64 +693,7 @@ class RubiksColorSolver(object):
         self.corners.append(Corner(self, 52, 45, 16))
         self.corners.append(Corner(self, 54, 36, 43))
 
-    def resolve_needed_edges(self):
-        self.needed_edges = sorted(self.needed_edges)
-
-        output = []
-        for (colorA, colorB) in self.needed_edges:
-            output.append("%s/%s" % (colorA.name, colorB.name))
-        log.info('Needed edges: %s' % ', '.join(output))
-
-        score_per_permutation = []
-        unresolved_edges = [edge for edge in self.edges if edge.valid is False]
-        permutation_count = factorial(len(self.needed_edges))
-
-        # 6! = 720
-        # 7! = 5040
-        while permutation_count > self.permutation_limit:
-            log.info("Permutation count is %d which is too high...resolve one edge" % permutation_count)
-
-            scores = []
-            for edge in unresolved_edges:
-                for (colorA, colorB) in self.needed_edges:
-                    distance = edge.color_distance(colorA, colorB)
-                    scores.append((distance, edge, (colorA, colorB)))
-
-            scores = sorted(scores)
-            (distance, edge_best_match, (colorA, colorB)) = scores[0]
-
-            log.info("%s/%s best match is %s with distance %d" % (colorA.name, colorB.name, edge_best_match, distance))
-            edge_best_match.update_colors(colorA, colorB)
-            edge_best_match.valid = True
-            self.needed_edges.remove((colorA, colorB))
-
-            unresolved_edges= [edge for edge in self.edges if edge.valid is False]
-            permutation_count = factorial(len(self.needed_edges))
-
-        log.info("Evaluating %d permutations" % permutation_count)
-
-        for edge_permutation in permutations(unresolved_edges):
-            total_distance = 0
-
-            for (edge, (colorA, colorB)) in zip(edge_permutation, self.needed_edges):
-                total_distance += edge.color_distance(colorA, colorB)
-
-            score_per_permutation.append((total_distance, edge_permutation))
-
-        score_per_permutation = sorted(score_per_permutation)
-        best_permutation = score_per_permutation[0][1]
-
-        total_distance = 0
-        for (edge_best_match, (colorA, colorB)) in zip(best_permutation, self.needed_edges):
-            distance = edge_best_match.color_distance(colorA, colorB)
-            total_distance += distance
-
-            log.info("%s/%s best match is %s with distance %d" % (colorA.name, colorB.name, edge_best_match, distance))
-            edge_best_match.update_colors(colorA, colorB)
-            edge_best_match.valid = True
-        log.info("Total distance: %d" % total_distance)
-
-    def valid_parity(self):
+    def valid_cube_parity(self):
         """
         cubex will barf with one of the following errors if you give it an invalid cube
 
@@ -770,6 +720,8 @@ class RubiksColorSolver(object):
                     self.tools_file = check_output('find . -name tools.py', shell=True).splitlines()[0]
                 log.info("tools_file: %s" % self.tools_file)
 
+            # This is slow...it takes about 1s.  Profiling shows that the bulk
+            # of that is in cPickle.load.
             arg = ''.join(map(str, self.cube_for_kociemba()))
             output = Popen([self.tools_file, '--verify', arg], stdout=PIPE).communicate()[0]
             output = int(output.strip())
@@ -793,26 +745,118 @@ class RubiksColorSolver(object):
                 return False
             return True
 
-    def resolve_needed_corners(self):
-        self.needed_corners = sorted(self.needed_corners)
+    def valid_edge_parity(self):
+        """
+        Fill in the 8 corners with valid parity so that we can verify the parity of the edges
+        """
+        tmp_corners = [x for x in self.corners]
 
-        output = []
-        for (colorA, colorB, colorC) in self.needed_corners:
-            output.append("%s/%s/%s" % (colorA.name, colorB.name, colorC.name))
-        log.info('Needed corners: %s' % ', '.join(output))
+        for (colorA, colorB, colorC) in self.valid_corners:
+            corner = tmp_corners[0]
+            corner.update_colors(colorA, colorB, colorC)
+            tmp_corners.remove(corner)
 
+        return self.valid_cube_parity()
+
+    def resolve_edge_squares(self):
+        log.info('Resolve edges')
+        #log.info("valid edges\n%s\n" % pformat(self.valid_edges))
+
+        # Initially we flag all of our Edge objects as invalid
+        for edge in self.edges:
+            edge.valid = False
+
+        # And our 'needed' list will hold all 12 edges
+        needed_edges = sorted(self.valid_edges)
+
+        unresolved_edges = [edge for edge in self.edges if edge.valid is False]
+        permutation_count = factorial(len(needed_edges))
+
+        # 12 edges will mean 479,001,600 permutations which is too many.  Examine
+        # all 12 edges and find the one we can match against a needed_edge that produces
+        # the lowest color distance. update_colors() for this edge, mark it as
+        # valid and remove it# from the needed_edges.  Repeat this until the
+        # number of permutations of needed_edges is down to our permutation_limit.
+        while permutation_count > self.permutation_limit:
+            log.info("Permutation count is %d which is too high...resolve one edge" % permutation_count)
+
+            scores = []
+            for edge in unresolved_edges:
+                for (colorA, colorB) in needed_edges:
+                    distance = edge.color_distance(colorA, colorB)
+                    scores.append((distance, edge, (colorA, colorB)))
+
+            scores = sorted(scores)
+            (distance, edge_best_match, (colorA, colorB)) = scores[0]
+
+            log.info("%s/%s best match is %s with distance %d" % (colorA.name, colorB.name, edge_best_match, distance))
+            edge_best_match.update_colors(colorA, colorB)
+            edge_best_match.valid = True
+            needed_edges.remove((colorA, colorB))
+
+            unresolved_edges= [edge for edge in self.edges if edge.valid is False]
+            permutation_count = factorial(len(needed_edges))
+
+        log.info("Permutation count is %d...find the permutation with the lowest total color distance" % permutation_count)
         score_per_permutation = []
-        unresolved_corners = [corner for corner in self.corners if corner.valid is False]
-        permutation_count = factorial(len(self.needed_corners))
 
-        # 6! = 720
-        # 7! = 5040
+        for edge_permutation in permutations(unresolved_edges):
+            total_distance = 0
+
+            for (edge, (colorA, colorB)) in zip(edge_permutation, needed_edges):
+                total_distance += edge.color_distance(colorA, colorB)
+
+            score_per_permutation.append((total_distance, edge_permutation))
+
+        score_per_permutation = sorted(score_per_permutation)
+
+        # Now traverse the permutations from best score to worst. The first
+        # permutation that produces a set of edges with valid parity is the
+        # permutation we want (most of the time the first entry has valid parity).
+        for (_, permutation) in score_per_permutation:
+            total_distance = 0
+
+            for (edge_best_match, (colorA, colorB)) in zip(permutation, needed_edges):
+                distance = edge_best_match.color_distance(colorA, colorB)
+                total_distance += distance
+
+                log.info("%s/%s potential match is %s with distance %d" % (colorA.name, colorB.name, edge_best_match, distance))
+                edge_best_match.update_colors(colorA, colorB)
+                edge_best_match.valid = True
+
+            if self.valid_edge_parity():
+                log.info("Total distance: %d, edge parity is valid" % total_distance)
+                break
+            else:
+                log.info("Total distance: %d, edge parity is NOT valid" % total_distance)
+
+        log.info('\n')
+
+    def resolve_corner_squares(self):
+        log.info('Resolve corners')
+        #log.info("valid corners\n%s\n" % pformat(self.valid_corners))
+
+        # Initially we flag all of our Edge objects as invalid
+        for corner in self.corners:
+            corner.valid = False
+
+        # And our 'needed' list will hold all 8 corners.
+        needed_corners = sorted(self.valid_corners)
+
+        unresolved_corners = [corner for corner in self.corners if corner.valid is False]
+        permutation_count = factorial(len(needed_corners))
+
+        # 8 corners will mean 40320 permutations which is too many.  Examine
+        # all 8 and find the one we can match against a needed_corner that produces
+        # the lowest color distance. update_colors() for this corner, mark it as
+        # valid and remove it# from the needed_corners.  Repeat this until the
+        # number of permutations of needed_corners is down to our permutation_limit.
         while permutation_count > self.permutation_limit:
             log.info("Permutation count is %d which is too high...resolve one corner" % permutation_count)
 
             scores = []
             for corner in unresolved_corners:
-                for (colorA, colorB, colorC) in self.needed_corners:
+                for (colorA, colorB, colorC) in needed_corners:
                     distance = corner.color_distance(colorA, colorB, colorC)
                     scores.append((distance, corner, (colorA, colorB, colorC)))
 
@@ -822,104 +866,42 @@ class RubiksColorSolver(object):
             log.info("%s/%s/%s best match is %s with distance %d" % (colorA.name, colorB.name, colorC.name, corner_best_match, distance))
             corner_best_match.update_colors(colorA, colorB, colorC)
             corner_best_match.valid = True
-            self.needed_corners.remove((colorA, colorB, colorC))
+            needed_corners.remove((colorA, colorB, colorC))
 
             unresolved_corners = [corner for corner in self.corners if corner.valid is False]
-            permutation_count = factorial(len(self.needed_corners))
+            permutation_count = factorial(len(needed_corners))
 
-        log.info("Evaluating %d permutations" % permutation_count)
+        log.info("Permutation count is %d...find the permutation with the lowest total color distance" % permutation_count)
+        score_per_permutation = []
 
         for corner_permutation in permutations(unresolved_corners):
             total_distance = 0
 
-            for (corner, (colorA, colorB, colorC)) in zip(corner_permutation, self.needed_corners):
+            for (corner, (colorA, colorB, colorC)) in zip(corner_permutation, needed_corners):
                 total_distance += corner.color_distance(colorA, colorB, colorC)
 
             score_per_permutation.append((total_distance, corner_permutation))
 
         score_per_permutation = sorted(score_per_permutation)
 
+        # Now traverse the permutations from best score to worst. The first
+        # permutation that produces a cube with valid parity is the permutation
+        # we want (most of the time the first entry has valid parity).
         for (_, permutation) in score_per_permutation:
             total_distance = 0
 
-            for (corner_best_match, (colorA, colorB, colorC)) in zip(permutation, self.needed_corners):
+            for (corner_best_match, (colorA, colorB, colorC)) in zip(permutation, needed_corners):
                 distance = corner_best_match.color_distance(colorA, colorB, colorC)
                 total_distance += distance
                 log.info("%s/%s/%s best match is %s with distance %d" % (colorA.name, colorB.name, colorC.name, corner_best_match, distance))
                 corner_best_match.update_colors(colorA, colorB, colorC)
                 corner_best_match.valid = True
-            log.info("Total distance: %d" % total_distance)
 
-            if self.valid_parity():
+            if self.valid_cube_parity():
+                log.info("Total distance: %d, cube parity is valid" % total_distance)
                 break
-
-    def sanity_edge_squares(self):
-        log.info('Sanity check edge squares')
-        #log.info("valid edges\n%s\n" % pformat(self.valid_edges))
-
-        for edge in self.edges:
-            edge.validate()
-
-        # Find duplicates and mark them as invalid
-        for edge1 in self.edges:
-            for edge2 in self.edges:
-
-                if edge1 == edge2 or not edge1.valid or not edge2.valid:
-                    continue
-
-                if (edge1.square1.color in (edge2.square1.color, edge2.square2.color) and
-                    edge1.square2.color in (edge2.square1.color, edge2.square2.color)):
-                    edge1.valid = False
-                    edge2.valid = False
-                    log.info("Duplicate edge %s" % edge1)
-                    log.info("Duplicate edge %s" % edge2)
-
-        self.needed_edges = []
-        for (colorA, colorB) in self.valid_edges:
-
-            for edge in self.edges:
-                if edge.valid and edge.colors_match(colorA, colorB):
-                    break
             else:
-                self.needed_edges.append((colorA, colorB))
-
-        if self.needed_edges:
-            self.resolve_needed_edges()
-
-        log.info('\n')
-
-    def sanity_corner_squares(self):
-        log.info('Sanity check corner squares')
-        #log.info("valid corners\n%s\n" % pformat(self.valid_corners))
-
-        for corner in self.corners:
-            corner.validate()
-
-        for corner1 in self.corners:
-            for corner2 in self.corners:
-
-                if corner1 == corner2 or not corner1.valid or not corner2.valid:
-                    continue
-
-                if (corner1.square1.color in (corner2.square1.color, corner2.square2.color, corner2.square3.color) and
-                    corner1.square2.color in (corner2.square1.color, corner2.square2.color, corner2.square3.color) and
-                    corner1.square3.color in (corner2.square1.color, corner2.square2.color, corner2.square3.color)):
-                    corner1.valid = False
-                    corner2.valid = False
-                    log.info("Duplicate corner %s" % corner1)
-                    log.info("Duplicate corner %s" % corner2)
-
-        self.needed_corners = []
-        for (colorA, colorB, colorC) in self.valid_corners:
-
-            for corner in self.corners:
-                if corner.valid and corner.colors_match(colorA, colorB, colorC):
-                    break
-            else:
-                self.needed_corners.append((colorA, colorB, colorC))
-
-        if self.needed_corners:
-            self.resolve_needed_corners()
+                log.info("Total distance: %d, cube parity is NOT valid" % total_distance)
 
         log.info('\n')
 
@@ -933,8 +915,8 @@ class RubiksColorSolver(object):
         self.identify_corner_squares()
 
         self.create_edges_and_corners()
-        self.sanity_edge_squares()
-        self.sanity_corner_squares()
+        self.resolve_edge_squares()
+        self.resolve_corner_squares()
 
         self.print_cube()
         self.print_layout()
@@ -946,12 +928,12 @@ if __name__ == '__main__':
     parser.add_argument('--method', help='cubex or kociemba', default='kociemba')
     args = parser.parse_args()
 
-    logging.basicConfig(filename='/tmp/rubiks-rgb-solver.log',
+    logging.basicConfig(filename='rubiks-rgb-solver.log',
                         level=logging.INFO,
                         format='%(asctime)s %(levelname)5s: %(message)s')
     log = logging.getLogger(__name__)
 
-    from testdata import edge1
+    from testdata import edge_parity
     cube = RubiksColorSolver(True)
 
     if args.rgb:
@@ -961,7 +943,7 @@ if __name__ == '__main__':
             scan_data[int(key)] = value
         cube.enter_scan_data(scan_data)
     else:
-        cube.enter_scan_data(edge1)
+        cube.enter_scan_data(edge_parity)
 
     (kociemba, cubex) = cube.crunch_colors()
 
