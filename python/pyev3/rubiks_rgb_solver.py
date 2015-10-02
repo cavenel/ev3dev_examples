@@ -694,41 +694,30 @@ class RubiksColorSolver(object):
         self.corners.append(Corner(self, 54, 36, 43))
 
     def valid_cube_parity(self):
-        """
-        cubex will barf with one of the following errors if you give it an invalid cube
 
-        511 ERROR: cubelet error - incorrect cubelets - cube mispainted.
-        512 ERROR: parity error - nondescript - cube misassembled.
-        513 ERROR: parity error - center rotation - cube misassembled.
-        514 ERROR: cubelet error - backward centers or corners - cube mispainted.
-        515 ERROR: parity error - edge flipping - cube misassembled.
-        516 ERROR: parity error - edge swapping - cube misassembled.
-        517 ERROR: parity error - corner rotation - cube misassembled.
-        http://www.gtoal.com/src/rubik/solver/readme.txt
-
-        Long term we should add this parity logic to this class but for now
-        just call cubex and see if it found an error.
-        """
         if self.on_server:
             # We do not have an x86 build of cubex_ev3 so use the kociemba
-            # library to verify parity
+            # library to verify parity...this appears to be faster anyway.
+            from twophase_python.verify import verify as verify_parity
 
-            if not self.tools_file:
-                if os.path.isfile('twophase_python/tools.py'):
-                    self.tools_file = 'twophase_python/tools.py'
-                else:
-                    self.tools_file = check_output('find . -name tools.py', shell=True).splitlines()[0]
-                log.info("tools_file: %s" % self.tools_file)
-
-            # This is slow...it takes about 1s.  Profiling shows that the bulk
-            # of that is in cPickle.load.
-            arg = ''.join(map(str, self.cube_for_kociemba()))
-            output = Popen([self.tools_file, '--verify', arg], stdout=PIPE).communicate()[0]
-            output = int(output.strip())
+            output = verify_parity(''.join(map(str, self.cube_for_kociemba())))
             if output == 0:
                 return True
             return False
+
         else:
+            '''
+            cubex will barf with one of the following errors if you give it an invalid cube
+
+            511 ERROR: cubelet error - incorrect cubelets - cube mispainted.
+            512 ERROR: parity error - nondescript - cube misassembled.
+            513 ERROR: parity error - center rotation - cube misassembled.
+            514 ERROR: cubelet error - backward centers or corners - cube mispainted.
+            515 ERROR: parity error - edge flipping - cube misassembled.
+            516 ERROR: parity error - edge swapping - cube misassembled.
+            517 ERROR: parity error - corner rotation - cube misassembled.
+            http://www.gtoal.com/src/rubik/solver/readme.txt
+            '''
 
             if not self.cubex_file:
                 if os.path.isfile('../utils/rubiks_solvers/cubex_C_ARM/cubex_ev3'):
