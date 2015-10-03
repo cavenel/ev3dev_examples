@@ -5,6 +5,8 @@ from subprocess import check_output
 import json
 import signal
 
+log = logging.getLogger(__name__)
+
 class ScanError(Exception):
     pass
 
@@ -82,7 +84,7 @@ class Rubiks(Robot):
 
     def rotate_cube(self, direction, nb, wait=1):
 
-        if (self.mot_push.get_position() > 15):
+        if (self.mot_push.get_position() > 35):
             self.push_arm_away()
 
         final_dest = 135 * round((self.mot_rotate.get_position() + (270 * direction * nb)) / 135.0)
@@ -136,7 +138,7 @@ class Rubiks(Robot):
 
         self.mot_rotate.goto_position(
             final_dest,
-            Rubiks.rotate_speed/2,
+            Rubiks.rotate_speed/4,
             0,
             0,
             stop_mode='hold', accuracy_sp=100)
@@ -276,7 +278,7 @@ class Rubiks(Robot):
         if self.shutdown_flag:
             return
 
-        if (self.mot_push.get_position() > 15):
+        if (self.mot_push.get_position() > 35):
             self.push_arm_away()
 
         log.info('scanning face')
@@ -292,7 +294,9 @@ class Rubiks(Robot):
         self.mot_rotate.wait_for_stop() # just to be sure
         self.mot_rotate.reset()
         self.mot_rotate.rotate_position(1080, 400, 0, 0, 'on', stop_mode='hold')
+        self.mot_rotate.wait_for_start()
 
+        #while math.fabs(self.mot_rotate.get_speed()) > 2:
         while self.mot_rotate.is_running():
             current_position = self.mot_rotate.get_position()
 

@@ -201,7 +201,6 @@ class Motor(Communicate):
         self.write(path, str(value))
 
     def set_position_sp(self, value):
-        # log.info("%s set_position_sp %s" % (self, value))
         path = self.path + 'position_sp'
         self.write(path, str(int(value)))
 
@@ -296,7 +295,7 @@ class Motor(Communicate):
         self.write(path, str(down))
 
     def rotate_forever(self, speed=480, regulate='on', stop_mode='brake'):
-        log.info("%s rotate_forever at speed %d" % (self, speed))
+        log.debug("%s rotate_forever at speed %d" % (self, speed))
         self.set_stop_mode(stop_mode)
         if regulate == 'on':
             self.set_speed_sp(speed)
@@ -307,7 +306,7 @@ class Motor(Communicate):
         self.wait_for_start()
 
     def rotate_time(self, time, speed=480, up=0, down=0, regulate='on', stop_mode='brake'):
-        log.info("%s rotate for %dms at speed %d" % (self, time, speed))
+        log.debug("%s rotate for %dms at speed %d" % (self, time, speed))
         self.set_stop_mode(stop_mode)
         self.set_regulation_mode(regulate)
         self.set_ramps(up, down)
@@ -320,7 +319,7 @@ class Motor(Communicate):
         self.wait_for_start()
 
     def rotate_position(self, position, speed=480, up=0, down=0, regulate='on', stop_mode='brake', accuracy_sp=None):
-        log.info("%s rotate for %d at speed %d" % (self, position, speed))
+        log.debug("%s rotate for %d at speed %d" % (self, position, speed))
         self.set_stop_mode(stop_mode)
         self.set_regulation_mode(regulate)
         self.set_ramps(up, down)
@@ -338,16 +337,23 @@ class Motor(Communicate):
 
         self.set_speed_sp(accuracy_sp)
         current_pos = self.get_position()
-        #log.info("Current pos %d, target pos %d" % (current_pos, position))
+        log.debug("Current pos %d, target pos %d" % (current_pos, position))
 
+        attempt = 0
         while current_pos != position:
             self.set_run_mode('run-to-abs-pos')
+            self.wait_for_start()
             self.wait_for_stop()
             current_pos = self.get_position()
-            #log.info("Current pos %d, target pos %d" % (current_pos, position))
+            log.debug("Current pos %d, target pos %d" % (current_pos, position))
+            attempt += 1
+
+            if attempt >= 10:
+                log.warning("We could not get to target pos %d" % position)
+                break
 
     def goto_position(self, position, speed=480, up=0, down=0, regulate='on', stop_mode='brake', wait=0, accuracy_sp=None):
-        #log.info("%s rotate to %d at speed %d" % (self, position, speed))
+        log.debug("%s rotate to %d at speed %d" % (self, position, speed))
         self.set_stop_mode(stop_mode)
         self.set_regulation_mode(regulate)
         self.set_ramps(up, down)
@@ -375,11 +381,13 @@ class Motor(Communicate):
     def wait_for_start(self):
         prev = None
         attempt = 0
+        log.debug("%s waiting for start" % self)
 
         while True:
             curr = self.get_position()
 
             if prev is not None and curr != prev:
+                log.debug("%s started" % self)
                 return
             prev = curr
             attempt += 1
@@ -387,19 +395,21 @@ class Motor(Communicate):
             # If it was a short move for the motor maybe we missed it...don't
             # stay in this loop for forever
             if attempt >= 50:
+                log.debug("%s started (max attempts)" % self)
                 return
 
     def wait_for_stop(self):
         prev = None
         no_movement = 0
+        log.debug("%s waiting for stop" % self)
 
         while True:
             curr = self.get_position()
-            # log.info("%s wait_for_stop prev %s, curr %s" % (self, prev, curr))
 
             if prev is not None and abs(curr - prev) < 3:
                 no_movement += 1
                 if no_movement >= 3:
+                    log.debug("%s stopped" % self)
                     break
                 else:
                     continue
@@ -411,7 +421,6 @@ class Motor(Communicate):
         return True if 'running' in self.get_state() else False
 
     def stop(self, stop_mode='coast'):
-        #log.info("%s stop to %s" % (self, stop_mode))
         self.set_stop_mode(stop_mode)
         self.set_run_mode('stop')
 
