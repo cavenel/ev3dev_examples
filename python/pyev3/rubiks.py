@@ -37,6 +37,7 @@ class Rubiks(Robot):
         self.server_ip = None
         self.server_username = None
         self.server_path = None
+        self.rgb_solver = None
         signal.signal(signal.SIGTERM, self.signal_term_handler)
         signal.signal(signal.SIGINT, self.signal_int_handler)
         self.parse_server_conf()
@@ -61,6 +62,10 @@ class Rubiks(Robot):
     def shutdown(self):
         log.info('Shutting down')
         self.leds.set_all('yellow')
+
+        if self.rgb_solver:
+            self.rgb_solver.shutdown_flag = True
+
         self.shutdown_flag = True
         self.mot_push.wait_for_stop()
         self.mot_push.stop()
@@ -122,6 +127,7 @@ class Rubiks(Robot):
             self.mot_push.goto_position(Rubiks.hold_cube_pos, 300, stop_mode='hold')
             self.mot_push.wait_for_start()
             self.mot_push.wait_for_stop()
+            self.mot_push.stop()
 
         # This depends on lot on Rubiks.rotate_speed
         OVERROTATE = 25
@@ -133,7 +139,7 @@ class Rubiks(Robot):
             Rubiks.rotate_speed,
             0,
             300,
-            stop_mode='hold', accuracy_sp=100)
+            stop_mode='hold')
         self.mot_rotate.wait_for_stop()
 
         self.mot_rotate.goto_position(
@@ -175,15 +181,18 @@ class Rubiks(Robot):
             current_position >= Rubiks.hold_cube_pos + 10):
             self.mot_push.goto_position(Rubiks.hold_cube_pos, 400)
             self.mot_push.wait_for_stop()
+            self.mot_push.stop()
 
         # Grab the cube and pull back
         self.mot_push.goto_position(180, 400, 200, 0)
         self.mot_push.wait_for_stop()
+        self.mot_push.stop()
 
         # At this point the cube is at an angle, push it forward to
         # drop it back down in the turntable
         self.mot_push.goto_position(Rubiks.hold_cube_pos, 600)
         self.mot_push.wait_for_stop()
+        self.mot_push.stop()
 
         transformation = [2, 4, 1, 3, 0, 5]
         self.apply_transformation(transformation)
@@ -387,9 +396,13 @@ class Rubiks(Robot):
 
         if run_rgb_solver:
             from rubiks_rgb_solver import RubiksColorSolver
-            rgb_solver = RubiksColorSolver(False)
-            rgb_solver.enter_scan_data(self.colors)
-            (self.cube_kociemba, self.cube_cubex) = rgb_solver.crunch_colors()
+            self.rgb_solver = RubiksColorSolver(False)
+
+            if self.shutdown_flag:
+                self.rgb_solver.shutdown_flag = True
+
+            self.rgb_solver.enter_scan_data(self.colors)
+            (self.cube_kociemba, self.cube_cubex) = self.rgb_solver.crunch_colors()
 
         log.info("Scanned RGBs\n%s" % pformat(self.colors))
         log.info("Final Colors: %s" % self.cube_kociemba)

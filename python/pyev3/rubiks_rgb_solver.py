@@ -8,6 +8,7 @@ from math import factorial
 from pprint import pformat
 from subprocess import Popen, PIPE, check_output
 from time import sleep
+from twophase_python.verify import verify as verify_parity
 import argparse
 import json
 import logging
@@ -305,6 +306,7 @@ class RubiksColorSolver(object):
         self.scan_data = {}
         self.tools_file = None
         self.cubex_file = None
+        self.shutdown_flag = False
 
         # 4! = 24
         # 5! = 120
@@ -711,83 +713,48 @@ class RubiksColorSolver(object):
         self.corners.append(Corner(self, 54, 36, 43))
 
     def valid_cube_parity(self, fake_corner_parity):
+        cube_string = ''.join(map(str, self.cube_for_kociemba()))
+        if fake_corner_parity:
 
-        if self.on_server:
-            # We do not have an x86 build of cubex_ev3 so use the kociemba
-            # library to verify parity...this appears to be faster anyway.
-            from twophase_python.verify import verify as verify_parity
+            # Fill in the corners with data that we know to be valid parity
+            # We do this when we are validating the parity of the edges
+            #log.info('pre  cube string: %s' % cube_string)
+            cube_string = list(cube_string)
+            cube_string[0] = 'U'
+            cube_string[2] = 'U'
+            cube_string[6] = 'U'
+            cube_string[8] = 'U'
 
-            cube_string = ''.join(map(str, self.cube_for_kociemba()))
-            if fake_corner_parity:
+            cube_string[9] = 'R'
+            cube_string[11] = 'R'
+            cube_string[15] = 'R'
+            cube_string[17] = 'R'
 
-                # Fill in the corners with data that we know to be valid parity
-                # We do this when we are validating the parity of the edges
-                #log.info('pre  cube string: %s' % cube_string)
-                cube_string = list(cube_string)
-                cube_string[0] = 'U'
-                cube_string[2] = 'U'
-                cube_string[6] = 'U'
-                cube_string[8] = 'U'
+            cube_string[18] = 'F'
+            cube_string[20] = 'F'
+            cube_string[24] = 'F'
+            cube_string[26] = 'F'
 
-                cube_string[9] = 'R'
-                cube_string[11] = 'R'
-                cube_string[15] = 'R'
-                cube_string[17] = 'R'
+            cube_string[27] = 'D'
+            cube_string[29] = 'D'
+            cube_string[33] = 'D'
+            cube_string[35] = 'D'
 
-                cube_string[18] = 'F'
-                cube_string[20] = 'F'
-                cube_string[24] = 'F'
-                cube_string[26] = 'F'
+            cube_string[36] = 'L'
+            cube_string[38] = 'L'
+            cube_string[42] = 'L'
+            cube_string[44] = 'L'
 
-                cube_string[27] = 'D'
-                cube_string[29] = 'D'
-                cube_string[33] = 'D'
-                cube_string[35] = 'D'
+            cube_string[45] = 'B'
+            cube_string[47] = 'B'
+            cube_string[51] = 'B'
+            cube_string[53] = 'B'
+            cube_string = ''.join(cube_string)
+            #log.info('post cube string: %s' % cube_string)
 
-                cube_string[36] = 'L'
-                cube_string[38] = 'L'
-                cube_string[42] = 'L'
-                cube_string[44] = 'L'
-
-                cube_string[45] = 'B'
-                cube_string[47] = 'B'
-                cube_string[51] = 'B'
-                cube_string[53] = 'B'
-                cube_string = ''.join(cube_string)
-                #log.info('post cube string: %s' % cube_string)
-
-            if not verify_parity(cube_string):
-                return True
-            return False
-
-        else:
-            '''
-            cubex will barf with one of the following errors if you give it an invalid cube
-
-            511 ERROR: cubelet error - incorrect cubelets - cube mispainted.
-            512 ERROR: parity error - nondescript - cube misassembled.
-            513 ERROR: parity error - center rotation - cube misassembled.
-            514 ERROR: cubelet error - backward centers or corners - cube mispainted.
-            515 ERROR: parity error - edge flipping - cube misassembled.
-            516 ERROR: parity error - edge swapping - cube misassembled.
-            517 ERROR: parity error - corner rotation - cube misassembled.
-            http://www.gtoal.com/src/rubik/solver/readme.txt
-            '''
-
-            if not self.cubex_file:
-                if os.path.isfile('../utils/rubiks_solvers/cubex_C_ARM/cubex_ev3'):
-                    self.cubex_file = '../utils/rubiks_solvers/cubex_C_ARM/cubex_ev3'
-                else:
-                    self.cubex_file = check_output('find . -name cubex_ev3', shell=True).splitlines()[0]
-                log.info("cubex_file: %s" % self.cubex_file)
-
-            arg = ''.join(map(str, self.cube_for_cubex()))
-            output = Popen([self.cubex_file, arg], stdout=PIPE).communicate()[0]
-            output = output.strip()
-            if 'error' in output:
-                log.info("Invalid parity:\n\n%s\n" % output)
-                return False
+        if not verify_parity(cube_string):
             return True
+        return False
 
     def valid_edge_parity(self):
         return self.valid_cube_parity(fake_corner_parity=True)
@@ -835,6 +802,10 @@ class RubiksColorSolver(object):
         score_per_permutation = []
 
         for edge_permutation in permutations(unresolved_edges):
+
+            if self.shutdown_flag:
+                return
+
             total_distance = 0
 
             for (edge, (colorA, colorB)) in zip(edge_permutation, needed_edges):
@@ -848,6 +819,10 @@ class RubiksColorSolver(object):
         # permutation that produces a set of edges with valid parity is the
         # permutation we want (most of the time the first entry has valid parity).
         for (_, permutation) in score_per_permutation:
+
+            if self.shutdown_flag:
+                return
+
             total_distance = 0
 
             for (edge_best_match, (colorA, colorB)) in zip(permutation, needed_edges):
@@ -909,6 +884,10 @@ class RubiksColorSolver(object):
         score_per_permutation = []
 
         for corner_permutation in permutations(unresolved_corners):
+
+            if self.shutdown_flag:
+                return
+
             total_distance = 0
 
             for (corner, (colorA, colorB, colorC)) in zip(corner_permutation, needed_corners):
@@ -922,6 +901,10 @@ class RubiksColorSolver(object):
         # permutation that produces a cube with valid parity is the permutation
         # we want (most of the time the first entry has valid parity).
         for (_, permutation) in score_per_permutation:
+
+            if self.shutdown_flag:
+                return
+
             total_distance = 0
 
             for (corner_best_match, (colorA, colorB, colorC)) in zip(permutation, needed_corners):
@@ -951,6 +934,9 @@ class RubiksColorSolver(object):
         self.create_edges_and_corners()
         self.resolve_edge_squares()
         self.resolve_corner_squares()
+
+        if self.shutdown_flag:
+            return (None, None)
 
         self.print_cube()
         self.print_layout()
