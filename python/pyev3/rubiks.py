@@ -130,7 +130,7 @@ class Rubiks(Robot):
             self.mot_push.stop()
 
         # This depends on lot on Rubiks.rotate_speed
-        OVERROTATE = 25
+        OVERROTATE = 18
         final_dest = 135 * round((self.mot_rotate.get_position() + (270 * direction * nb)) / 135.0)
         temp_dest = final_dest + (OVERROTATE * direction)
 

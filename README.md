@@ -29,7 +29,7 @@ faster server:
 
 - When run on a server, the color analyzer will use a more CPU intensive algorithm
   and will return more reliable results.
-- When run on a server, utils/rubiks_solvers/twophase_python/solve.py is used to
+- When run on a server, ev3dev_examples/python/pyev3/twophase_python/solve.py is used to
   calculate the solution.  This normally returns a solution that takes about 20 steps.
   This is compared to a solution in the 60 to 100 steps range if you use cubex on the ev3.
 
