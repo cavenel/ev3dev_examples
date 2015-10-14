@@ -8,9 +8,11 @@ from math import factorial
 from pprint import pformat
 from subprocess import Popen, PIPE, check_output
 from time import sleep
+from twophase_python.verify import verify as verify_parity
 import argparse
 import json
 import logging
+import operator
 import os
 import sys
 
@@ -90,7 +92,6 @@ class Edge(object):
         """
         Given two colors, return our total color distance
         """
-        # log.info('colorA %s, colorB %s, sq1 %s, sq2 %s, distanceAB %d, distanceBA %d' % (colorA, colorB, self.square1.rawcolor, self.square2.rawcolor, distanceAB, distanceBA))
         return min(self._get_color_distances(colorA, colorB))
 
     def update_colors(self, colorA, colorB):
@@ -162,7 +163,6 @@ class Corner(object):
     def update_colors(self, colorA, colorB, colorC):
         (distanceABC, distanceCAB, distanceBCA) = self._get_color_distances(colorA, colorB, colorC)
         min_distance = min(distanceABC, distanceCAB, distanceBCA)
-        #log.info("update_colors min %d, distanceABC %d, distanceCAB %d, distanceBCA %d" % distanceABC, distanceCAB, distanceBCA)
 
         if min_distance == distanceABC:
             self.square1.color = colorA
@@ -193,7 +193,6 @@ class Corner(object):
             (self.square3.color, self.square1.color, self.square2.color) in self.cube.valid_corners or
             (self.square3.color, self.square2.color, self.square1.color) in self.cube.valid_corners):
             self.valid = True
-            #log.info("%s (%s, %s, %s) is a valid corner" % (self, self.square1.color, self.square2.color, self.square3.color))
         else:
             self.valid = False
             log.info("%s (%s, %s, %s) is an invalid corner" % (self, self.square1.color, self.square2.color, self.square3.color))
@@ -224,17 +223,17 @@ class Square(object):
         self.cie_data = sorted(self.cie_data)
 
         distance = self.cie_data[0][0]
-        color = self.cie_data[0][1]
+        color_obj = self.cie_data[0][1]
 
         if set_color:
             self.distance = distance
-            self.color = color
+            self.color = color_obj
 
         if debug:
             #log.info("%s is %s\n%s\n" % (self, color, pformat(self.cie_data)))
-            log.info("%s is %s" % (self, color))
+            log.info("%s is %s" % (self, color_obj))
 
-        return (color, distance)
+        return (color_obj, distance)
 
 
 class CubeSide(object):
@@ -305,11 +304,23 @@ class RubiksColorSolver(object):
         self.scan_data = {}
         self.tools_file = None
         self.cubex_file = None
+        self.shutdown_flag = False
 
+        # 4! = 24
+        # 5! = 120
+        # 6! = 720
+        # 7! = 5040
+        # 8! = 40320
         if on_server:
-            self.permutation_limit = 40320
+            # With a limit of 40320 it takes 3.6s to resolve the colors for a cube
+            # With a limit of  5040 it takes 1.5s to resolve the colors for a cube
+            # With a limit of   720 it takes 1.2s to resolve the colors for a cube
+            # These numbers are from a beefy server, not EV3
+            self.edge_permutation_limit = 5040
+            self.corner_permutation_limit = 5040
         else:
-            self.permutation_limit = 720
+            self.edge_permutation_limit = 720
+            self.corner_permutation_limit = 720
 
         self.sides = {
           'U' : CubeSide(self, 'U'),
@@ -488,108 +499,27 @@ class RubiksColorSolver(object):
         del self.crayola_colors[crayola_color_name]
 
     def find_top_six_colors(self):
-
-        log.info('Populate the crayon box with the six colors of the middle squares')
         self.crayon_box = {}
-        for side_name in self.side_order:
-            side = self.sides[side_name]
+        for side in self.sides.itervalues():
             self.crayon_box[side.name] = side.middle_square.rawcolor
             self.set_color_name(side.middle_square)
 
         output = []
         for side_name in self.side_order:
-            output.append("  %s : %s" % (side_name, self.crayon_box[side_name].name))
-        log.info("Crayon box:\n%s" % '\n'.join(output))
-
-        '''
-        The following turned out to be overkill but it worked so I will leave it
-        as a comment just in case.
-
-        log.info('ID all 54 squares based on the middle square colors')
-        for side_name in self.side_order:
-            side = self.sides[side_name]
-
-            for square in side.squares.itervalues():
-                square.find_closest_match(self.crayon_box, debug=True)
-
-        # There will be 9 squares for each color (it won't be exact at this
-        # point though).  Find the square among those 9 that provides the
-        # least color distance among the time.  Basically find the square that
-        # is the midpoint color among those nine. Use those six midpoint squares
-        # to build the final crayon box.
-        log.info('Rebuild the crayon box (find the 6 color midpoint squares)')
-        for side_name in self.side_order:
-            side = self.sides[side_name]
-            side_color = side.middle_square.color
-            squares_with_side_color = self.get_squares_with_color(side_color)
-
-            foo = {}
-
-            for sq1 in squares_with_side_color:
-                temp_crayon_box = {}
-
-                for sq2 in squares_with_side_color:
-                    # Do not compare a square against itself...that would always be a distance of 0
-                    if sq1 is not sq2:
-                        temp_crayon_box[sq2.position] = sq2.rawcolor
-
-                #log.info("temp crayon box\n%s" % pformat(temp_crayon_box))
-                (color, _) = sq1.find_closest_match(temp_crayon_box, set_color=False)
-
-                if color not in foo:
-                    foo[color] = 0
-                foo[color] += 1
-                #raw_input('Paused')
-
-            # At this point all 9 squares have been compared against the
-            # other 8...find the color that was the most popular and put that in
-            # the crayon box as the color for this side
-            sorted_foo = sorted(foo.items(), key=operator.itemgetter(1), reverse=True)
-            #log.info("%s color popularity\n%s" % (side, pformat(sorted_foo)))
-
-            # TODO there could be a tie...need to handle this:
-            #[(LabColor(lab_l=30.626785538389214,lab_a=29.864352167725787,lab_b=30.031945460862175), 3),
-            # (LabColor(lab_l=30.39277536960828,lab_a=30.261979610325508,lab_b=31.446448273216898), 3),
-            # (LabColor(lab_l=28.969608061170973,lab_a=30.74656331835321,lab_b=35.38884117489387), 1),
-            # (LabColor(lab_l=29.8088145006421,lab_a=31.85654695908241,lab_b=30.301232023478686), 1),
-            # (LabColor(lab_l=31.851487373878392,lab_a=32.66039756821765,lab_b=32.2372603765823), 1),
-            # (LabColor(lab_l=27.931101652554908,lab_a=25.37466834649582,lab_b=27.62787975085021), 1),
-            # (LabColor(lab_l=31.34443578320309,lab_a=30.52412919898051,lab_b=31.494460965331882), 1)]
-            #
-            #[(LabColor(lab_l=27.86036466873822,lab_a=-13.2834726963951,lab_b=-8.915176734633345), 2),
-            # (LabColor(lab_l=28.33962119547708,lab_a=-16.56411006327929,lab_b=-3.6550220126744803), 2),
-            # (LabColor(lab_l=29.05801904503408,lab_a=-13.80885329144016,lab_b=-9.03989132743721), 2),
-            # (LabColor(lab_l=26.547887212482145,lab_a=-10.164625015115364,lab_b=-12.213412613744712), 1),
-            # (LabColor(lab_l=25.535908528467232,lab_a=-15.373542751586672,lab_b=-2.588992836467119), 1),
-            # (LabColor(lab_l=30.2220672289314,lab_a=-17.84738998577959,lab_b=-5.3753856103857744), 1)]
-            self.crayon_box[side.name] = sorted_foo[0][0]
-
-        log.info("Final crayon box (midpoint color for each side)\n%s" % pformat(self.crayon_box))
-
-        log.info('ID all 54 squares based on the final crayon box')
-        for side in self.sides.itervalues():
-            for square in side.squares.itervalues():
-                (match, distance) = square.find_closest_match(self.crayon_box)
-        '''
+            output.append("  %s : %s %s" % (side_name, self.crayon_box[side_name].name, self.crayon_box[side_name]))
+        log.info("Crayon box (middle square colors):\n%s" % '\n'.join(output))
 
     def identify_middle_squares(self):
         log.info('ID middle square colors')
 
-        middle_squares = []
         for side_name in self.side_order:
             side = self.sides[side_name]
-            middle_squares.append(side.middle_square)
+            side.color = self.crayon_box[side_name]
 
-        for square in middle_squares:
-            square.find_closest_match(self.crayon_box)
-
-        log.info("Set the side color by middle square")
-        for square in middle_squares:
-            square.side.color = square.color
-
-        log.info('Final middle squares')
-        for square in middle_squares:
-            log.info("%s is %s" % (square, square.color))
+            # The middle square must match the color in the crayon_box for this side
+            # so pass a dictionary with just this one color
+            side.middle_square.find_closest_match({'foo' : side.color})
+            log.info("%s is %s" % (side.middle_square, side.middle_square.color.name))
         log.info('\n')
 
         self.valid_edges = []
@@ -624,24 +554,16 @@ class RubiksColorSolver(object):
     def identify_edge_squares(self):
         log.info('ID edge square colors')
 
-        edge_squares = []
-        for side_name in self.side_order:
-            side = self.sides[side_name]
-            edge_squares.extend(side.edge_squares)
-
-        for square in edge_squares:
-            square.find_closest_match(self.crayon_box)
+        for side in self.sides.itervalues():
+            for square in side.edge_squares:
+                square.find_closest_match(self.crayon_box)
 
     def identify_corner_squares(self):
         log.info('ID corner square colors')
 
-        corner_squares = []
-        for side_name in self.side_order:
-            side = self.sides[side_name]
-            corner_squares.extend(side.corner_squares)
-
-        for square in corner_squares:
-            square.find_closest_match(self.crayon_box)
+        for side in self.sides.itervalues():
+            for square in side.corner_squares:
+                square.find_closest_match(self.crayon_box)
 
     def create_edges_and_corners(self):
         """
@@ -686,242 +608,239 @@ class RubiksColorSolver(object):
         self.corners.append(Corner(self, 52, 45, 16))
         self.corners.append(Corner(self, 54, 36, 43))
 
-    def resolve_needed_edges(self):
-        self.needed_edges = sorted(self.needed_edges)
+    def valid_cube_parity(self, fake_corner_parity):
+        """
+        verify_parity() returns
+         0: Cube is solvable
+        -1: There is not exactly one facelet of each colour
+        -2: Not all 12 edges exist exactly once
+        -3: Flip error: One edge has to be flipped
+        -4: Not all 8 corners exist exactly once
+        -5: Twist error: One corner has to be twisted
+        -6: Parity error: Two corners or two edges have to be exchanged
 
-        output = []
-        for (colorA, colorB) in self.needed_edges:
-            output.append("%s/%s" % (colorA.name, colorB.name))
-        log.info('Needed edges: %s' % ', '.join(output))
+        Given how we assign colors it is not possible for us to generate a cube
+        that returns -1, -2, or -4
+        """
+        cube_string = ''.join(map(str, self.cube_for_kociemba()))
 
-        score_per_permutation = []
+        if fake_corner_parity:
+
+            # Fill in the corners with data that we know to be valid parity
+            # We do this when we are validating the parity of the edges
+            #log.info('pre  cube string: %s' % cube_string)
+            cube_string = list(cube_string)
+            cube_string[0] = 'U'
+            cube_string[2] = 'U'
+            cube_string[6] = 'U'
+            cube_string[8] = 'U'
+
+            cube_string[9] = 'R'
+            cube_string[11] = 'R'
+            cube_string[15] = 'R'
+            cube_string[17] = 'R'
+
+            cube_string[18] = 'F'
+            cube_string[20] = 'F'
+            cube_string[24] = 'F'
+            cube_string[26] = 'F'
+
+            cube_string[27] = 'D'
+            cube_string[29] = 'D'
+            cube_string[33] = 'D'
+            cube_string[35] = 'D'
+
+            cube_string[36] = 'L'
+            cube_string[38] = 'L'
+            cube_string[42] = 'L'
+            cube_string[44] = 'L'
+
+            cube_string[45] = 'B'
+            cube_string[47] = 'B'
+            cube_string[51] = 'B'
+            cube_string[53] = 'B'
+            cube_string = ''.join(cube_string)
+            #log.info('post cube string: %s' % cube_string)
+
+        result = verify_parity(cube_string)
+
+        if not result:
+            return True
+
+        # Must ignore this one since we made up the corners
+        if fake_corner_parity and result == -6:
+            return True
+
+        log.info("parity is %s" % result)
+        return False
+
+    def valid_edge_parity(self):
+        return self.valid_cube_parity(fake_corner_parity=True)
+
+    def resolve_edge_squares(self):
+        log.info('Resolve edges')
+
+        # Initially we flag all of our Edge objects as invalid
+        for edge in self.edges:
+            edge.valid = False
+
+        # And our 'needed' list will hold all 12 edges
+        needed_edges = sorted(self.valid_edges)
+
         unresolved_edges = [edge for edge in self.edges if edge.valid is False]
-        permutation_count = factorial(len(self.needed_edges))
+        permutation_count = factorial(len(needed_edges))
+        best_match_total_distance = 0
 
-        # 6! = 720
-        # 7! = 5040
-        while permutation_count > self.permutation_limit:
-            log.info("Permutation count is %d which is too high...resolve one edge" % permutation_count)
-
+        # 12 edges will mean 479,001,600 permutations which is too many.  Examine
+        # all 12 edges and find the one we can match against a needed_edge that produces
+        # the lowest color distance. update_colors() for this edge, mark it as
+        # valid and remove it from the needed_edges.  Repeat this until the
+        # number of permutations of needed_edges is down to our permutation_limit.
+        while permutation_count > self.edge_permutation_limit:
             scores = []
             for edge in unresolved_edges:
-                for (colorA, colorB) in self.needed_edges:
+                for (colorA, colorB) in needed_edges:
                     distance = edge.color_distance(colorA, colorB)
                     scores.append((distance, edge, (colorA, colorB)))
 
             scores = sorted(scores)
             (distance, edge_best_match, (colorA, colorB)) = scores[0]
 
-            log.info("%s/%s best match is %s with distance %d" % (colorA.name, colorB.name, edge_best_match, distance))
+            log.info("%s/%s best match is %s with distance %d (permutations %d)" %\
+                (colorA.name, colorB.name, edge_best_match, distance, permutation_count))
+            best_match_total_distance += distance
             edge_best_match.update_colors(colorA, colorB)
             edge_best_match.valid = True
-            self.needed_edges.remove((colorA, colorB))
+            needed_edges.remove((colorA, colorB))
 
             unresolved_edges= [edge for edge in self.edges if edge.valid is False]
-            permutation_count = factorial(len(self.needed_edges))
+            permutation_count = factorial(len(needed_edges))
 
-        log.info("Evaluating %d permutations" % permutation_count)
+        score_per_permutation = []
 
         for edge_permutation in permutations(unresolved_edges):
+
+            if self.shutdown_flag:
+                return
+
             total_distance = 0
 
-            for (edge, (colorA, colorB)) in zip(edge_permutation, self.needed_edges):
+            for (edge, (colorA, colorB)) in zip(edge_permutation, needed_edges):
                 total_distance += edge.color_distance(colorA, colorB)
 
             score_per_permutation.append((total_distance, edge_permutation))
 
         score_per_permutation = sorted(score_per_permutation)
-        best_permutation = score_per_permutation[0][1]
 
-        total_distance = 0
-        for (edge_best_match, (colorA, colorB)) in zip(best_permutation, self.needed_edges):
-            distance = edge_best_match.color_distance(colorA, colorB)
-            total_distance += distance
+        # Now traverse the permutations from best score to worst. The first
+        # permutation that produces a set of edges with valid parity is the
+        # permutation we want (most of the time the first entry has valid parity).
+        for (_, permutation) in score_per_permutation:
 
-            log.info("%s/%s best match is %s with distance %d" % (colorA.name, colorB.name, edge_best_match, distance))
-            edge_best_match.update_colors(colorA, colorB)
-            edge_best_match.valid = True
-        log.info("Total distance: %d" % total_distance)
+            if self.shutdown_flag:
+                return
 
-    def valid_parity(self):
-        """
-        cubex will barf with one of the following errors if you give it an invalid cube
+            total_distance = best_match_total_distance
 
-        511 ERROR: cubelet error - incorrect cubelets - cube mispainted.
-        512 ERROR: parity error - nondescript - cube misassembled.
-        513 ERROR: parity error - center rotation - cube misassembled.
-        514 ERROR: cubelet error - backward centers or corners - cube mispainted.
-        515 ERROR: parity error - edge flipping - cube misassembled.
-        516 ERROR: parity error - edge swapping - cube misassembled.
-        517 ERROR: parity error - corner rotation - cube misassembled.
-        http://www.gtoal.com/src/rubik/solver/readme.txt
+            for (edge_best_match, (colorA, colorB)) in zip(permutation, needed_edges):
+                distance = edge_best_match.color_distance(colorA, colorB)
+                total_distance += distance
 
-        Long term we should add this parity logic to this class but for now
-        just call cubex and see if it found an error.
-        """
-        if self.on_server:
-            # We do not have an x86 build of cubex_ev3 so use the kociemba
-            # library to verify parity
+                log.info("%s/%s potential match is %s with distance %d" % (colorA.name, colorB.name, edge_best_match, distance))
+                edge_best_match.update_colors(colorA, colorB)
+                edge_best_match.valid = True
 
-            if not self.tools_file:
-                if os.path.isfile('../utils/rubiks_solvers/twophase_python/tools.py'):
-                    self.tools_file = '../utils/rubiks_solvers/twophase_python/tools.py'
-                else:
-                    self.tools_file = check_output('find . -name tools.py', shell=True).splitlines()[0]
-                log.info("tools_file: %s" % self.tools_file)
+            if self.valid_edge_parity():
+                log.info("Total distance: %d, edge parity is valid" % total_distance)
+                break
+            else:
+                log.info("Total distance: %d, edge parity is NOT valid" % total_distance)
 
-            arg = ''.join(map(str, self.cube_for_kociemba()))
-            output = Popen([self.tools_file, '--verify', arg], stdout=PIPE).communicate()[0]
-            output = int(output.strip())
-            if output == 0:
-                return True
-            return False
-        else:
+        log.info('\n')
 
-            if not self.cubex_file:
-                if os.path.isfile('../utils/rubiks_solvers/cubex_C_ARM/cubex_ev3'):
-                    self.cubex_file = '../utils/rubiks_solvers/cubex_C_ARM/cubex_ev3'
-                else:
-                    self.cubex_file = check_output('find . -name cubex_ev3', shell=True).splitlines()[0]
-                log.info("cubex_file: %s" % self.cubex_file)
+    def resolve_corner_squares(self):
+        log.info('Resolve corners')
 
-            arg = ''.join(map(str, self.cube_for_cubex()))
-            output = Popen([self.cubex_file, arg], stdout=PIPE).communicate()[0]
-            output = output.strip()
-            if 'error' in output:
-                log.info("Invalid parity:\n\n%s\n" % output)
-                return False
-            return True
+        # Initially we flag all of our Edge objects as invalid
+        for corner in self.corners:
+            corner.valid = False
 
-    def resolve_needed_corners(self):
-        self.needed_corners = sorted(self.needed_corners)
+        # And our 'needed' list will hold all 8 corners.
+        needed_corners = sorted(self.valid_corners)
 
-        output = []
-        for (colorA, colorB, colorC) in self.needed_corners:
-            output.append("%s/%s/%s" % (colorA.name, colorB.name, colorC.name))
-        log.info('Needed corners: %s' % ', '.join(output))
-
-        score_per_permutation = []
         unresolved_corners = [corner for corner in self.corners if corner.valid is False]
-        permutation_count = factorial(len(self.needed_corners))
+        permutation_count = factorial(len(needed_corners))
+        best_match_total_distance = 0
 
-        # 6! = 720
-        # 7! = 5040
-        while permutation_count > self.permutation_limit:
-            log.info("Permutation count is %d which is too high...resolve one corner" % permutation_count)
-
+        # 8 corners will mean 40320 permutations which is too many.  Examine
+        # all 8 and find the one we can match against a needed_corner that produces
+        # the lowest color distance. update_colors() for this corner, mark it as
+        # valid and remove it from the needed_corners.  Repeat this until the
+        # number of permutations of needed_corners is down to our permutation_limit.
+        while permutation_count > self.corner_permutation_limit:
             scores = []
             for corner in unresolved_corners:
-                for (colorA, colorB, colorC) in self.needed_corners:
+                for (colorA, colorB, colorC) in needed_corners:
                     distance = corner.color_distance(colorA, colorB, colorC)
                     scores.append((distance, corner, (colorA, colorB, colorC)))
 
             scores = sorted(scores)
             (distance, corner_best_match, (colorA, colorB, colorC)) = scores[0]
 
-            log.info("%s/%s/%s best match is %s with distance %d" % (colorA.name, colorB.name, colorC.name, corner_best_match, distance))
+            #if distance > 15:
+            #    break
+
+            log.info("%s/%s/%s best match is %s with distance %d (permutations %d)" %\
+                (colorA.name, colorB.name, colorC.name, corner_best_match, distance, permutation_count))
+            best_match_total_distance += distance
             corner_best_match.update_colors(colorA, colorB, colorC)
             corner_best_match.valid = True
-            self.needed_corners.remove((colorA, colorB, colorC))
+            needed_corners.remove((colorA, colorB, colorC))
 
             unresolved_corners = [corner for corner in self.corners if corner.valid is False]
-            permutation_count = factorial(len(self.needed_corners))
+            permutation_count = factorial(len(needed_corners))
 
-        log.info("Evaluating %d permutations" % permutation_count)
+        score_per_permutation = []
 
         for corner_permutation in permutations(unresolved_corners):
+
+            if self.shutdown_flag:
+                return
+
             total_distance = 0
 
-            for (corner, (colorA, colorB, colorC)) in zip(corner_permutation, self.needed_corners):
+            for (corner, (colorA, colorB, colorC)) in zip(corner_permutation, needed_corners):
                 total_distance += corner.color_distance(colorA, colorB, colorC)
 
             score_per_permutation.append((total_distance, corner_permutation))
 
         score_per_permutation = sorted(score_per_permutation)
 
+        # Now traverse the permutations from best score to worst. The first
+        # permutation that produces a cube with valid parity is the permutation
+        # we want (most of the time the first entry has valid parity).
         for (_, permutation) in score_per_permutation:
-            total_distance = 0
 
-            for (corner_best_match, (colorA, colorB, colorC)) in zip(permutation, self.needed_corners):
+            if self.shutdown_flag:
+                return
+
+            total_distance = best_match_total_distance
+
+            for (corner_best_match, (colorA, colorB, colorC)) in zip(permutation, needed_corners):
                 distance = corner_best_match.color_distance(colorA, colorB, colorC)
                 total_distance += distance
                 log.info("%s/%s/%s best match is %s with distance %d" % (colorA.name, colorB.name, colorC.name, corner_best_match, distance))
                 corner_best_match.update_colors(colorA, colorB, colorC)
                 corner_best_match.valid = True
-            log.info("Total distance: %d" % total_distance)
 
-            if self.valid_parity():
+            if self.valid_cube_parity(fake_corner_parity=False):
+                log.info("Total distance: %d, cube parity is valid" % total_distance)
                 break
-
-    def sanity_edge_squares(self):
-        log.info('Sanity check edge squares')
-        #log.info("valid edges\n%s\n" % pformat(self.valid_edges))
-
-        for edge in self.edges:
-            edge.validate()
-
-        # Find duplicates and mark them as invalid
-        for edge1 in self.edges:
-            for edge2 in self.edges:
-
-                if edge1 == edge2 or not edge1.valid or not edge2.valid:
-                    continue
-
-                if (edge1.square1.color in (edge2.square1.color, edge2.square2.color) and
-                    edge1.square2.color in (edge2.square1.color, edge2.square2.color)):
-                    edge1.valid = False
-                    edge2.valid = False
-                    log.info("Duplicate edge %s" % edge1)
-                    log.info("Duplicate edge %s" % edge2)
-
-        self.needed_edges = []
-        for (colorA, colorB) in self.valid_edges:
-
-            for edge in self.edges:
-                if edge.valid and edge.colors_match(colorA, colorB):
-                    break
             else:
-                self.needed_edges.append((colorA, colorB))
-
-        if self.needed_edges:
-            self.resolve_needed_edges()
+                log.info("Total distance: %d, cube parity is NOT valid" % total_distance)
 
         log.info('\n')
 
-    def sanity_corner_squares(self):
-        log.info('Sanity check corner squares')
-        #log.info("valid corners\n%s\n" % pformat(self.valid_corners))
-
-        for corner in self.corners:
-            corner.validate()
-
-        for corner1 in self.corners:
-            for corner2 in self.corners:
-
-                if corner1 == corner2 or not corner1.valid or not corner2.valid:
-                    continue
-
-                if (corner1.square1.color in (corner2.square1.color, corner2.square2.color, corner2.square3.color) and
-                    corner1.square2.color in (corner2.square1.color, corner2.square2.color, corner2.square3.color) and
-                    corner1.square3.color in (corner2.square1.color, corner2.square2.color, corner2.square3.color)):
-                    corner1.valid = False
-                    corner2.valid = False
-                    log.info("Duplicate corner %s" % corner1)
-                    log.info("Duplicate corner %s" % corner2)
-
-        self.needed_corners = []
-        for (colorA, colorB, colorC) in self.valid_corners:
-
-            for corner in self.corners:
-                if corner.valid and corner.colors_match(colorA, colorB, colorC):
-                    break
-            else:
-                self.needed_corners.append((colorA, colorB, colorC))
-
-        if self.needed_corners:
-            self.resolve_needed_corners()
-
-        log.info('\n')
 
     def crunch_colors(self):
         log.info('Discover the six colors')
@@ -933,8 +852,11 @@ class RubiksColorSolver(object):
         self.identify_corner_squares()
 
         self.create_edges_and_corners()
-        self.sanity_edge_squares()
-        self.sanity_corner_squares()
+        self.resolve_edge_squares()
+        self.resolve_corner_squares()
+
+        if self.shutdown_flag:
+            return (None, None)
 
         self.print_cube()
         self.print_layout()
@@ -946,26 +868,32 @@ if __name__ == '__main__':
     parser.add_argument('--method', help='cubex or kociemba', default='kociemba')
     args = parser.parse_args()
 
-    logging.basicConfig(filename='/tmp/rubiks-rgb-solver.log',
+    logging.basicConfig(filename='rubiks-rgb-solver.log',
                         level=logging.INFO,
                         format='%(asctime)s %(levelname)5s: %(message)s')
     log = logging.getLogger(__name__)
 
-    from testdata import edge1
-    cube = RubiksColorSolver(True)
+    try:
+        from testdata import edge_parity, solved_cube1
 
-    if args.rgb:
-        scan_data_str_keys = json.loads(args.rgb)
-        scan_data = {}
-        for (key, value) in scan_data_str_keys.iteritems():
-            scan_data[int(key)] = value
-        cube.enter_scan_data(scan_data)
-    else:
-        cube.enter_scan_data(edge1)
+        cube = RubiksColorSolver(True)
 
-    (kociemba, cubex) = cube.crunch_colors()
+        if args.rgb:
+            scan_data_str_keys = json.loads(args.rgb)
+            scan_data = {}
+            for (key, value) in scan_data_str_keys.iteritems():
+                scan_data[int(key)] = value
+            cube.enter_scan_data(scan_data)
+        else:
+            cube.enter_scan_data(solved_cube1)
 
-    if args.method == 'kociemba':
-        print ''.join(map(str, kociemba))
-    else:
-        print ''.join(map(str, cubex))
+        (kociemba, cubex) = cube.crunch_colors()
+
+        if args.method == 'kociemba':
+            print ''.join(map(str, kociemba))
+        else:
+            print ''.join(map(str, cubex))
+
+    except Exception as e:
+        log.exception(e)
+        sys.exit(1)

@@ -11,9 +11,9 @@ logging.basicConfig(filename='rubiks.log',
                     format='%(asctime)s %(filename)12s %(levelname)8s: %(message)s')
 log = logging.getLogger(__name__)
 log.info('Begin...')
+rub = Rubiks()
 
 try:
-    rub = Rubiks()
     rub.leds.set_all('green')
     rub.wait_for_cube_insert()
     rub.scan()
