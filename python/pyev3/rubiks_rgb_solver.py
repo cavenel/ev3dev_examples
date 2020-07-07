@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 from colormath.color_objects import sRGBColor, LabColor
-from colormath.color_diff import delta_e_cie1976, delta_e_cie2000
+from colormath.color_diff import delta_e_cmc
 from colormath.color_conversions import convert_color
 from itertools import permutations
 from math import factorial
@@ -29,11 +29,12 @@ def get_color_distance(c1, c2, on_server):
     if (c2, c1) in dcache:
         return dcache[(c2, c1)]
 
-    # delta_e_cie2000 is better but is 3x slower on an EV3...1976 is good enough
-    if on_server:
-        distance = delta_e_cie2000(c1, c2)
-    else:
-        distance = delta_e_cie1976(c1, c2)
+    # Delta E CMC seems to be the most reliable method,
+    # slightly more cpu expensive but not dramatically.
+    # Other methods coupled with low permutation limit
+    # on EV3 tend to mix Yellow/White and Orange/Red so
+    # ignore on_server flag here and use Delta E CMC.
+    distance = delta_e_cmc(c1, c2)
 
     dcache[(c1, c2)] = distance
     return distance

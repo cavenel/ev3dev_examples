@@ -57,7 +57,7 @@ class Sensor(Communicate):
 
         for sensor in os.listdir('/sys/class/lego-sensor/'):
             sensor_type_id = self.read("/sys/class/lego-sensor/%s/driver_name" % sensor)
-            sensor_port = self.read("/sys/class/lego-sensor/%s/port_name" % sensor)
+            sensor_port = self.read("/sys/class/lego-sensor/%s/address" % sensor)
             sensors.append((sensor_port, sensor_type_id))
 
             if type_id:
@@ -122,8 +122,15 @@ class Color_sensor(Sensor):
         self.set_mode('COL-COLOR')
         return colors[self.get_value()]
 
+class Distance_sensor(Sensor):
 
-class Infrared_sensor(Sensor):
+    def get_prox(self):
+        raise NotImplementedError
+
+    def is_in_range(self):
+        raise NotImplementedError
+
+class Infrared_sensor(Distance_sensor):
 
     def __init__(self):
         Sensor.__init__(self, type_id='lego-ev3-ir')
@@ -140,6 +147,13 @@ class Infrared_sensor(Sensor):
         self.set_mode('IR-PROX')
         return self.get_value()
 
+    def is_in_range(self):
+        dist = self.get_prox()
+        if (dist > 10 and dist < 50):
+            return True
+        else:
+            return False
+
     def get_seek(self):
         self.set_mode('IR-SEEK')
         h1, p1, h2, p2, h3, p3, h4, p4 = self.get_values(8)
@@ -153,6 +167,21 @@ class Infrared_sensor(Sensor):
 
         return channels
 
+class Ultrasonic_sensor(Distance_sensor):
+
+    def __init__(self):
+        Sensor.__init__(self, type_id='lego-ev3-us')
+
+    def get_prox(self):
+        self.set_mode('US-DIST-CM')
+        return self.get_value()
+
+    def is_in_range(self):
+        dist = self.get_prox()
+        if (dist > 70 and dist < 140):
+            return True
+        else:
+            return False
 
 class Motor(Communicate):
 
@@ -160,11 +189,11 @@ class Motor(Communicate):
         if port.upper() not in ('A', 'B', 'C', 'D'):
             raise ValueError('Motor Port is not valid')
 
-        target_port_name = 'out' + port.upper()
+        target_port_name = 'ev3-ports:out' + port.upper()
         motors = pyudev.Context().list_devices(subsystem='tacho-motor')
 
         for device in motors:
-            if target_port_name == device.get('LEGO_PORT_NAME', ''):
+            if target_port_name == device.get('LEGO_ADDRESS', ''):
                 self.path = device.sys_path + '/'
                 self.port = port.upper()
                 break
@@ -235,16 +264,13 @@ class Motor(Communicate):
         return self._read_file('state')
 
     def get_stop_mode(self):
-        return self.read(self.path + 'stop_command')
-
-    def get_regulation_mode(self):
-        return self.read(self.path + 'speed_regulation')
+        return self.read(self.path + 'stop_action')
 
     def get_run_commands(self):
         return self._read_file('commands').split()
 
     def get_stop_commands(self):
-        return self._read_file('stop_commands').split()
+        return self._read_file('stop_actions').split()
 
     def get_count_per_rotation(self):
         return int(self._read_file('count_per_rot'))
@@ -260,7 +286,7 @@ class Motor(Communicate):
         return self._read_file('polarity')
 
     def get_port_name(self):
-        return self._read_file('port_name')
+        return self._read_file('address')
 
     def get_pulses_per_second_sp(self):
         return int(self.read(self.path + 'pulses_per_second_sp'))
@@ -280,11 +306,7 @@ class Motor(Communicate):
 
     def set_stop_mode(self, value):
         assert value in self.stop_commands, "%s is not supported" % value
-        self._write_file('stop_command', value)
-
-    def set_regulation_mode(self, value):
-        assert value in ('on', 'off'), "%s is not supported" % value
-        self._write_file('speed_regulation', value)
+        self._write_file('stop_action', value)
 
     # ___ macros ___
 
@@ -301,14 +323,12 @@ class Motor(Communicate):
             self.set_speed_sp(speed)
         else:
             self.set_duty_cycle_sp(speed)
-        self.set_regulation_mode(regulate)
         self.set_run_mode('run-forever')
         self.wait_for_start()
 
     def rotate_time(self, time, speed=480, up=0, down=0, regulate='on', stop_mode='brake'):
         log.debug("%s rotate for %dms at speed %d" % (self, time, speed))
         self.set_stop_mode(stop_mode)
-        self.set_regulation_mode(regulate)
         self.set_ramps(up, down)
         if regulate == 'on':
             self.set_speed_sp(speed)
@@ -321,7 +341,6 @@ class Motor(Communicate):
     def rotate_position(self, position, speed=480, up=0, down=0, regulate='on', stop_mode='brake', accuracy_sp=None):
         log.debug("%s rotate for %d at speed %d" % (self, position, speed))
         self.set_stop_mode(stop_mode)
-        self.set_regulation_mode(regulate)
         self.set_ramps(up, down)
         if regulate == 'on':
             self.set_speed_sp(speed)
@@ -355,7 +374,6 @@ class Motor(Communicate):
     def goto_position(self, position, speed=480, up=0, down=0, regulate='on', stop_mode='brake', wait=0, accuracy_sp=None):
         log.debug("%s rotate to %d at speed %d" % (self, position, speed))
         self.set_stop_mode(stop_mode)
-        self.set_regulation_mode(regulate)
         self.set_ramps(up, down)
 
         if regulate == 'on':
@@ -446,10 +464,10 @@ class Leds(Communicate):
         """
         The four LEDs are:
 
-        ev3-left0:red:ev3dev
-        ev3-left1:green:ev3dev
-        ev3-right0:red:ev3dev
-        ev3-right1:green:ev3dev
+        led0:red:brick-status
+        led0:green:brick-status
+        led1:red:brick-status
+        led1:green:brick-status
         """
 
         if color == 'red':
@@ -459,7 +477,7 @@ class Leds(Communicate):
         else:
             raise InvalidColor("%s is not a supported color (red, green)" % color)
 
-        return self.path + 'ev3-' + led + color_text + ':ev3dev'
+        return self.path + 'led' + led + color_text + ':brick-status'
 
     def set_led(self, color, led, value):
         path = os.path.join(self._get_path(color, led), 'brightness')
@@ -468,34 +486,34 @@ class Leds(Communicate):
     def set_all(self, color, value=255):
 
         if color == 'red':
-            self.set_led('red', 'left', value)
-            self.set_led('red', 'right', value)
-            self.set_led('green', 'left', 0)
-            self.set_led('green', 'right', 0)
+            self.set_led('red', '', value)
+            self.set_led('red', '', value)
+            self.set_led('green', '', 0)
+            self.set_led('green', '', 0)
 
         elif color == 'green':
-            self.set_led('red', 'left', 0)
-            self.set_led('red', 'right', 0)
-            self.set_led('green', 'left', value)
-            self.set_led('green', 'right', value)
+            self.set_led('red', '', 0)
+            self.set_led('red', '', 0)
+            self.set_led('green', '', value)
+            self.set_led('green', '', value)
 
         elif color == 'orange':
-            self.set_led('red', 'left', 255)
-            self.set_led('red', 'right', 255)
-            self.set_led('green', 'left', 180)
-            self.set_led('green', 'right', 180)
+            self.set_led('red', '', 255)
+            self.set_led('red', '', 255)
+            self.set_led('green', '', 180)
+            self.set_led('green', '', 180)
 
         elif color == 'yellow':
-            self.set_led('red', 'left', 25)
-            self.set_led('red', 'right', 25)
-            self.set_led('green', 'left', 255)
-            self.set_led('green', 'right', 255)
+            self.set_led('red', '', 25)
+            self.set_led('red', '', 25)
+            self.set_led('green', '', 255)
+            self.set_led('green', '', 255)
 
         elif color == 'off':
-            self.set_led('red', 'left', 0)
-            self.set_led('red', 'right', 0)
-            self.set_led('green', 'left', 0)
-            self.set_led('green', 'right', 0)
+            self.set_led('red', '', 0)
+            self.set_led('red', '', 0)
+            self.set_led('green', '', 0)
+            self.set_led('green', '', 0)
 
         else:
             raise InvalidColor("%s is not a supported color" % color)
@@ -581,7 +599,7 @@ class Buttons(Communicate):
 
         def test_bit(bit, bytes):
             # bit in bytes is 1 when released and 0 when pressed
-            return not bool(bytes[bit / 8] & (1 << (bit % 8)))
+            return bool(bytes[bit / 8] & (1 << (bit % 8)))
 
         def EVIOCGKEY(length):
             return 2 << (14+8+8) | length << (8+8) | ord('E') << 8 | 0x18
@@ -593,11 +611,11 @@ class Buttons(Communicate):
 
         buf = array.array('B', [0] * self.BUF_LEN)
 
-        with open('/dev/input/by-path/platform-gpio-keys.0-event', 'r') as fd:
+        with open('/dev/input/by-path/platform-gpio_keys-event', 'r') as fd:
             ret = fcntl.ioctl(fd, EVIOCGKEY(len(buf)), buf)
 
         if ret < 0:
-            raise IOError("Could not read from /dev/input/by-path/platform-gpio-keys.0-event")
+            raise IOError("Could not read from /dev/input/by-path/platform-gpio_keys-event")
 
         return test_bit(self.key_codes[button], buf) and True or False
 

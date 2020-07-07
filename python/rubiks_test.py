@@ -7,6 +7,7 @@ import logging
 import sys
 
 logging.basicConfig(filename='rubiks.log',
+                    filemode='w',
                     level=logging.INFO,
                     format='%(asctime)s %(filename)12s %(levelname)8s: %(message)s')
 log = logging.getLogger(__name__)

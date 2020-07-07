@@ -30,7 +30,10 @@ class Rubiks(Robot):
         self.mot_bras = Motor('C', 'color arm')
         self.mot_rotate = Motor('B', 'turntable')
         self.color_sensor = Color_sensor()
-        self.infrared_sensor = Infrared_sensor()
+        try:
+            self.distance_sensor = Infrared_sensor()
+        except EnvironmentError:
+            self.distance_sensor = Ultrasonic_sensor()
         self.cube = {}
         self.init_motors()
         self.state = ['U', 'D', 'F', 'L', 'B', 'R']
@@ -168,6 +171,7 @@ class Rubiks(Robot):
         self.mot_push.wait_for_stop()
         self.mot_push.stop()
 
+
     def flip(self):
 
         if self.shutdown_flag:
@@ -184,7 +188,7 @@ class Rubiks(Robot):
             self.mot_push.stop()
 
         # Grab the cube and pull back
-        self.mot_push.goto_position(180, 400, 200, 0)
+        self.mot_push.goto_position(180, 400)
         self.mot_push.wait_for_stop()
         self.mot_push.stop()
 
@@ -216,13 +220,13 @@ class Rubiks(Robot):
         # Take a few data points before the cube starts turning.  This is in
         # case it is already where it should be, we want a measurement before we
         # move anything.
-        data.append((self.infrared_sensor.get_prox(), self.mot_rotate.get_position()))
-        data.append((self.infrared_sensor.get_prox(), self.mot_rotate.get_position()))
-        data.append((self.infrared_sensor.get_prox(), self.mot_rotate.get_position()))
+        data.append((self.distance_sensor.get_prox(), self.mot_rotate.get_position()))
+        data.append((self.distance_sensor.get_prox(), self.mot_rotate.get_position()))
+        data.append((self.distance_sensor.get_prox(), self.mot_rotate.get_position()))
 
         self.mot_rotate.rotate_position(540, speed=200)
         while self.mot_rotate.is_running():
-            data.append((self.infrared_sensor.get_prox(), self.mot_rotate.get_position()))
+            data.append((self.distance_sensor.get_prox(), self.mot_rotate.get_position()))
 
         data = sorted(data)
         log.info("bloc cube data\n%s" % pformat(data))
@@ -561,8 +565,8 @@ class Rubiks(Robot):
             if self.shutdown_flag:
                 break
 
-            dist = self.infrared_sensor.get_prox()
-            if (dist > 10 and dist < 50):
+            dist = self.distance_sensor.get_prox()
+            if (self.distance_sensor.is_in_range()):
                 rubiks_present += 1
                 log.info("wait for cube...proximity %d, present for %d/%d" %\
                          (dist, rubiks_present, rubiks_present_target))
@@ -587,8 +591,8 @@ class Rubiks(Robot):
             if self.shutdown_flag:
                 break
 
-            dist = self.infrared_sensor.get_prox()
-            if dist > 50:
+            dist = self.distance_sensor.get_prox()
+            if not self.distance_sensor.is_in_range():
                 rubiks_missing += 1
                 log.info('wait for cube removed...cube out')
             else:
